@@ -1,0 +1,90 @@
+{
+  "model": "claude-opus-4-7",
+  "total_cases": 2,
+  "filters": {
+    "severity": null,
+    "block": null,
+    "tags": null,
+    "ids": [
+      "MDNA-228",
+      "MDNA-226",
+      "MDNA-151",
+      "MDNA-035",
+      "MDNA-227"
+    ],
+    "limit": null
+  },
+  "timestamp": "20260423_103701",
+  "elapsed_seconds": 4.656213998794556,
+  "results": [
+    {
+      "case_id": "MDNA-035",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "tags": [
+        "estrangeiro",
+        "ingles"
+      ],
+      "input": "Hello, I'm visiting São Paulo from Milan this weekend. Can I have a table for 2 on Saturday at 8pm?",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nSaturday 8pm, table for two — confirmed. ✓\n\nMay I have a name and a contact number for the reservation?",
+      "expected_behaviors": [
+        "responde em inglês",
+        "confirma reserva",
+        "pergunta preferência"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "marketing",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Confirmed Saturday 8pm for two. What name should I put on the reservation? Quieter corner or livelier bar area?",
+      "error": null,
+      "timestamp": "2026-04-23T13:36:59.596213"
+    },
+    {
+      "case_id": "MDNA-151",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "ingles_quebrado"
+      ],
+      "input": "hello i want table saturday 8 person how much",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nWe work à la carte — no set menu or cover charge. Average per person runs R$ 280–350, excluding wine.\n\nFor Saturday, eight guests: I have 20h or 21h30. Which works?",
+      "expected_behaviors": [
+        "inglês simples e claro",
+        "frases curtas"
+      ],
+      "forbidden_behaviors": [
+        "inglês complicado",
+        "ignorar pergunta de preço",
+        "condescendente",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "How many people total? Tables are free — no reservation fee. What time Saturday?",
+      "error": null,
+      "timestamp": "2026-04-23T13:37:01.272259"
+    }
+  ]
+}

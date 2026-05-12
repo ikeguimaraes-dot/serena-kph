@@ -1,0 +1,116 @@
+{
+  "source_run": "raw_20260423_102202.json",
+  "judge_model": "claude-opus-4-7",
+  "total_cases": 2,
+  "timestamp": "20260423_102206",
+  "elapsed_seconds": 3.969529151916504,
+  "run_results": [
+    {
+      "case_id": "MDNA-035",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "tags": [
+        "estrangeiro",
+        "ingles"
+      ],
+      "input": "Hello, I'm visiting São Paulo from Milan this weekend. Can I have a table for 2 on Saturday at 8pm?",
+      "context_injection": "",
+      "actual_response": "Buonasera. Sono Serena, del Madonna.\n\nConfermo tavolo per due, sabato alle 20h. Mi lascia un nome e un contatto?\n\nSe preferisce una zona più riservata, posso sistemare nel fondo sala.",
+      "expected_behaviors": [
+        "responde em inglês",
+        "confirma reserva",
+        "pergunta preferência"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "marketing",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Confirmed Saturday 8pm for two. What name should I put on the reservation? Quieter corner or livelier bar area?",
+      "error": null,
+      "timestamp": "2026-04-23T13:22:02.100556"
+    },
+    {
+      "case_id": "MDNA-151",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "ingles_quebrado"
+      ],
+      "input": "hello i want table saturday 8 person how much",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nSaturday for 8, I have 8pm or 9:30pm. Which works?\n\nWe don't charge a reservation fee — guests order à la carte from the menu. Average per person is around R$ 450, excluding wine.\n\nShall I hold one of the times?",
+      "expected_behaviors": [
+        "inglês simples e claro",
+        "frases curtas"
+      ],
+      "forbidden_behaviors": [
+        "inglês complicado",
+        "ignorar pergunta de preço",
+        "condescendente",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "How many people total? Tables are free — no reservation fee. What time Saturday?",
+      "error": null,
+      "timestamp": "2026-04-23T13:22:02.113636"
+    }
+  ],
+  "judgments": [
+    {
+      "case_id": "MDNA-035",
+      "scores": {
+        "voz": 0,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 0,
+        "encerramento": 1
+      },
+      "total": 5,
+      "verdict": "fail",
+      "critical_failures": [
+        "voz"
+      ],
+      "observations": "Cliente escreveu em inglês e esperava resposta em inglês; Serena respondeu em italiano. Falha no comportamento esperado (inglês) e precisão comprometida por não atender idioma do cliente.",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-151",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 2,
+        "encerramento": 1
+      },
+      "total": 9,
+      "verdict": "pass",
+      "critical_failures": [],
+      "observations": "Inglês simples, frases curtas, duas opções de horário e resposta direta ao preço. Encerramento funcional ('Shall I hold one of the times?') mas não autoral no estilo Serena.",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "judge_error": null
+    }
+  ]
+}

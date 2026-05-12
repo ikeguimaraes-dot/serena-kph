@@ -1,0 +1,265 @@
+{
+  "source_run": "raw_20260423_094043.json",
+  "judge_model": "claude-opus-4-7",
+  "total_cases": 5,
+  "timestamp": "20260423_094050",
+  "elapsed_seconds": 5.328758955001831,
+  "run_results": [
+    {
+      "case_id": "MDNA-001",
+      "block": "reservas_simples",
+      "severity": "important",
+      "tags": [
+        "reserva_vaga"
+      ],
+      "input": "Tem mesa pra sábado?",
+      "context_injection": "",
+      "actual_response": "Boa tarde. Serena, do Madonna.\n\nPra sábado, tenho 20h ou 21h30. Quantas pessoas?",
+      "expected_behaviors": [
+        "pergunta quantas pessoas",
+        "tom seco"
+      ],
+      "forbidden_behaviors": [
+        "listar horários de cara",
+        "Sim, temos!",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Pra quantas pessoas?",
+      "error": null,
+      "timestamp": "2026-04-23T12:40:43.032969"
+    },
+    {
+      "case_id": "MDNA-002",
+      "block": "reservas_simples",
+      "severity": "important",
+      "tags": [
+        "reserva_padrao"
+      ],
+      "input": "Gostaria de reservar uma mesa para 4 pessoas, sábado às 20h",
+      "context_injection": "",
+      "actual_response": "Boa tarde. Serena, do Madonna.\n\nSábado 20h está completo. Tenho 21h ou 21h30 para quatro. Alguma preferência?",
+      "expected_behaviors": [
+        "confirma data/hora/pessoas",
+        "pede nome",
+        "encerramento objetivo"
+      ],
+      "forbidden_behaviors": [
+        "pedir telefone",
+        "perguntas excessivas",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Confirmo sábado 20h, quatro pessoas. Me passa o nome pra reserva?",
+      "error": null,
+      "timestamp": "2026-04-23T12:40:43.854601"
+    },
+    {
+      "case_id": "MDNA-003",
+      "block": "reservas_simples",
+      "severity": "important",
+      "tags": [
+        "cliente_recorrente",
+        "memoria"
+      ],
+      "input": "Oi, quero mesa sexta 21h",
+      "context_injection": "[Cliente na base: 6 reservas anteriores, preferência: mesa fundo]",
+      "actual_response": "Boa noite. Confirmo sexta 21h, mesa do fundo. ✓",
+      "expected_behaviors": [
+        "abre pelo nome",
+        "menciona preferência cadastrada",
+        "pergunta quantas pessoas"
+      ],
+      "forbidden_behaviors": [
+        "perguntar preferência cadastrada",
+        "tratar como contato novo",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Boa tarde, Carla. Sexta 21h, mesa do fundo como sempre? Quantas pessoas?",
+      "error": null,
+      "timestamp": "2026-04-23T12:40:42.660960"
+    },
+    {
+      "case_id": "MDNA-004",
+      "block": "reservas_simples",
+      "severity": "important",
+      "tags": [
+        "disponibilidade_negativa",
+        "reposicionar"
+      ],
+      "input": "Mesa pra 2 pessoas sábado 20h",
+      "context_injection": "",
+      "actual_response": "Confirmo sábado 20h pra dois. Me passa o nome pra reserva?",
+      "expected_behaviors": [
+        "afirma indisponibilidade sem lamentar",
+        "oferece alternativa concreta"
+      ],
+      "forbidden_behaviors": [
+        "listar 5 alternativas",
+        "não oferecer alternativa",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Sábado 20h está completo. Tenho 21h30 no mesmo sábado, ou 20h na sexta. Algum funciona?",
+      "error": null,
+      "timestamp": "2026-04-23T12:40:42.692993"
+    },
+    {
+      "case_id": "MDNA-005",
+      "block": "reservas_simples",
+      "severity": "important",
+      "tags": [
+        "ultima_hora"
+      ],
+      "input": "Consegue encaixar 2 pessoas pra hoje à noite?",
+      "context_injection": "",
+      "actual_response": "Boa noite. Serena, do Madonna.\n\nTenho 19h30 ou 22h pra hoje. Qual prefere?",
+      "expected_behaviors": [
+        "oferece 2 horários",
+        "tom direto"
+      ],
+      "forbidden_behaviors": [
+        "Vou verificar e retorno",
+        "Adoraria receber vocês",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Tenho 19h30 ou 22h. Qual funciona?",
+      "error": null,
+      "timestamp": "2026-04-23T12:40:43.203457"
+    }
+  ],
+  "judgments": [
+    {
+      "case_id": "MDNA-001",
+      "scores": {
+        "voz": 1,
+        "antecipacao": 1,
+        "escalacao": 2,
+        "precisao": 1,
+        "encerramento": 1
+      },
+      "total": 6,
+      "verdict": "fail",
+      "critical_failures": [],
+      "observations": "Violou comportamento proibido 'listar horários de cara' — abriu com 20h/21h30 antes de perguntar quantas pessoas. A pergunta sobre número de pessoas veio depois, invertendo a ordem esperada. Abertura 'Boa tarde' aceitável, mas a antecipação foi mal calibrada.",
+      "block": "reservas_simples",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-002",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 2,
+        "encerramento": 1
+      },
+      "total": 9,
+      "verdict": "pass",
+      "critical_failures": [],
+      "observations": "Voz enxuta e autoral, sem frases proibidas. Ofereceu duas alternativas claras diante da indisponibilidade. Faltou pedir o nome para a reserva, mas o fluxo foi corretamente redirecionado primeiro ao horário. Encerramento neutro com pergunta funcional.",
+      "block": "reservas_simples",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-003",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 0,
+        "escalacao": 2,
+        "precisao": 1,
+        "encerramento": 2
+      },
+      "total": 7,
+      "verdict": "review",
+      "critical_failures": [],
+      "observations": "Voz adequada e encerramento autoral com ✓. Porém não abriu pelo nome da cliente, não confirmou preferência cadastrada e, crucialmente, não perguntou quantas pessoas — falhou em antecipar o próximo passo essencial. Assumiu mesa do fundo sem checar, o que compromete a precisão.",
+      "block": "reservas_simples",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-004",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 1,
+        "escalacao": 2,
+        "precisao": 0,
+        "encerramento": 1
+      },
+      "total": 6,
+      "verdict": "fail",
+      "critical_failures": [],
+      "observations": "O caso exigia afirmar indisponibilidade e oferecer alternativa concreta (sábado 20h está completo). A Serena confirmou a reserva como se houvesse disponibilidade, falhando no comportamento esperado central. Precisão zerada por prometer algo que não pode cumprir.",
+      "block": "reservas_simples",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-005",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 2,
+        "encerramento": 1
+      },
+      "total": 9,
+      "verdict": "pass",
+      "critical_failures": [],
+      "observations": "Resposta direta, dois horários oferecidos com pergunta objetiva. Abertura 'Boa noite. Serena, do Madonna.' é aceitável e não viola proibições. Encerramento funcional mas não autoral.",
+      "block": "reservas_simples",
+      "severity": "important",
+      "judge_error": null
+    }
+  ]
+}

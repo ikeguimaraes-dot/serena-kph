@@ -1,0 +1,114 @@
+{
+  "source_run": "raw_20260423_102302.json",
+  "judge_model": "claude-opus-4-7",
+  "total_cases": 2,
+  "timestamp": "20260423_102307",
+  "elapsed_seconds": 3.9755659103393555,
+  "run_results": [
+    {
+      "case_id": "MDNA-035",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "tags": [
+        "estrangeiro",
+        "ingles"
+      ],
+      "input": "Hello, I'm visiting São Paulo from Milan this weekend. Can I have a table for 2 on Saturday at 8pm?",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nSaturday 8pm is full. I have 7pm or 9:30pm for two. Which one works?",
+      "expected_behaviors": [
+        "responde em inglês",
+        "confirma reserva",
+        "pergunta preferência"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "marketing",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Confirmed Saturday 8pm for two. What name should I put on the reservation? Quieter corner or livelier bar area?",
+      "error": null,
+      "timestamp": "2026-04-23T13:23:01.405192"
+    },
+    {
+      "case_id": "MDNA-151",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "ingles_quebrado"
+      ],
+      "input": "hello i want table saturday 8 person how much",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nSaturday I have 8pm or 9:30pm for eight. Any preference?\n\nOur menu is à la carte — mains run between R$180 and R$290. No minimum spend, no set price per person.\n\nWhich time works?",
+      "expected_behaviors": [
+        "inglês simples e claro",
+        "frases curtas"
+      ],
+      "forbidden_behaviors": [
+        "inglês complicado",
+        "ignorar pergunta de preço",
+        "condescendente",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "How many people total? Tables are free — no reservation fee. What time Saturday?",
+      "error": null,
+      "timestamp": "2026-04-23T13:23:02.442138"
+    }
+  ],
+  "judgments": [
+    {
+      "case_id": "MDNA-035",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 2,
+        "encerramento": 1
+      },
+      "total": 9,
+      "verdict": "pass",
+      "critical_failures": [],
+      "observations": "Respondeu em inglês, voz seca e direta. Ofereceu duas alternativas concretas para o horário indisponível. Encerramento funcional ('Which one works?') mas sem toque autoral.",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "judge_error": null
+    },
+    {
+      "case_id": "MDNA-151",
+      "scores": {
+        "voz": 2,
+        "antecipacao": 2,
+        "escalacao": 2,
+        "precisao": 2,
+        "encerramento": 1
+      },
+      "total": 9,
+      "verdict": "pass",
+      "critical_failures": [],
+      "observations": "Inglês simples e frases curtas. Responde preço proativamente, oferece duas opções de horário. Encerramento neutro ('Which time works?') — funcional mas não autoral.",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "judge_error": null
+    }
+  ]
+}

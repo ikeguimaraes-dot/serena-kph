@@ -1,0 +1,10 @@
+v10.0
+2026-04-23
+status: PRODUCTION BASELINE — GO-LIVE LIBERADO
+sha: 398702fe36
+pass_rate_avg: 76.7%
+pass_rate_peak: 83.0%
+nao_fail: 95.6%
+fail_etico: 0 (3 runs)
+judge_variance: alta (pass 66-83%), não-fail estável (92-98%)
+next: v11 requer VERSION BUMP explícito + novo baseline

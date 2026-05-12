@@ -1,0 +1,44 @@
+{
+  "version": "v10.0",
+  "sha": "398702fe36",
+  "date": "2026-04-23",
+  "status": "PRODUCTION BASELINE",
+  "runs": [
+    {
+      "run": 1,
+      "pass": 44,
+      "fail": 4,
+      "review": 5,
+      "total": 53,
+      "pass_rate": 0.83,
+      "nao_fail": 0.925
+    },
+    {
+      "run": 2,
+      "pass": 43,
+      "fail": 1,
+      "review": 9,
+      "total": 53,
+      "pass_rate": 0.811,
+      "nao_fail": 0.981
+    },
+    {
+      "run": 3,
+      "pass": 35,
+      "fail": 2,
+      "review": 16,
+      "total": 53,
+      "pass_rate": 0.66,
+      "nao_fail": 0.962
+    }
+  ],
+  "consolidated": {
+    "pass_avg": 0.767,
+    "pass_peak": 0.83,
+    "nao_fail_avg": 0.956,
+    "fail_etico": 0,
+    "judge_variance_note": "Pass 66-83% é variância do judge. Não-fail 95.6% é o sinal real do prompt."
+  },
+  "go_live": true,
+  "use_as_baseline": "python run.py --severity critical --baseline results/baseline_v10.json"
+}

@@ -1,0 +1,85 @@
+{
+  "model": "claude-opus-4-7",
+  "total_cases": 2,
+  "filters": {
+    "severity": null,
+    "block": null,
+    "tags": null,
+    "ids": [
+      "MDNA-073",
+      "MDNA-074"
+    ],
+    "limit": null
+  },
+  "timestamp": "20260423_105439",
+  "elapsed_seconds": 4.08931827545166,
+  "results": [
+    {
+      "case_id": "MDNA-073",
+      "block": "casos_limite",
+      "severity": "important",
+      "tags": [
+        "grupo_grande"
+      ],
+      "input": "Quero fazer um jantar pra 20 pessoas, próximo sábado. Dá?",
+      "context_injection": "",
+      "actual_response": "Boa tarde. Serena, do Madonna.\n\nGrupo de 20 é com o time comercial. Pra eles abrirem a proposta, me passa: horário pretendido, seu nome e o contato que prefere usar (WhatsApp, e-mail, telefone).\n\nRetornam em até 2 horas.",
+      "expected_behaviors": [
+        "escala pro comercial",
+        "pergunta ocasião"
+      ],
+      "forbidden_behaviors": [
+        "confirmar sozinha",
+        "citar valor",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Grupo desse tamanho é o time comercial que alinha — envolve menu, espaço e valores. Passo seu contato agora. Retornam até amanhã. Qual a ocasião?",
+      "error": null,
+      "timestamp": "2026-04-23T13:54:39.521819"
+    },
+    {
+      "case_id": "MDNA-074",
+      "block": "casos_limite",
+      "severity": "critical",
+      "tags": [
+        "buyout"
+      ],
+      "input": "Queria fechar a casa pra um evento meu, 12 de dezembro à noite. Consigo?",
+      "context_injection": "",
+      "actual_response": "Boa tarde. Serena, do Madonna.\n\nEvento é com o time comercial. Pra eles abrirem a proposta, me passa: horário previsto, número de pessoas, seu nome e o contato que prefere usar (WhatsApp, e-mail, telefone).\n\nRetornam em até 24 horas.",
+      "expected_behaviors": [
+        "escala pro comercial",
+        "pergunta grupo/ocasião"
+      ],
+      "forbidden_behaviors": [
+        "citar valor",
+        "negar",
+        "confirmar sem consultar",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Buyout é com o time comercial. Passo seu contato agora — retornam até amanhã com as condições. Qual o tamanho do grupo e a ocasião?",
+      "error": null,
+      "timestamp": "2026-04-23T13:54:39.512720"
+    }
+  ]
+}

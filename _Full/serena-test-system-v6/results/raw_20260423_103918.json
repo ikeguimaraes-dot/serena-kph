@@ -1,0 +1,192 @@
+{
+  "model": "claude-opus-4-7",
+  "total_cases": 5,
+  "filters": {
+    "severity": null,
+    "block": null,
+    "tags": null,
+    "ids": [
+      "MDNA-227",
+      "MDNA-151",
+      "MDNA-228",
+      "MDNA-035",
+      "MDNA-226"
+    ],
+    "limit": null
+  },
+  "timestamp": "20260423_103918",
+  "elapsed_seconds": 4.465282678604126,
+  "results": [
+    {
+      "case_id": "MDNA-035",
+      "block": "ocasioes_especiais",
+      "severity": "important",
+      "tags": [
+        "estrangeiro",
+        "ingles"
+      ],
+      "input": "Hello, I'm visiting São Paulo from Milan this weekend. Can I have a table for 2 on Saturday at 8pm?",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nSaturday 8pm, table for two — I can hold it. May I have the name for the reservation and a contact number?",
+      "expected_behaviors": [
+        "responde em inglês",
+        "confirma reserva",
+        "pergunta preferência"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "marketing",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Confirmed Saturday 8pm for two. What name should I put on the reservation? Quieter corner or livelier bar area?",
+      "error": null,
+      "timestamp": "2026-04-23T13:39:16.682086"
+    },
+    {
+      "case_id": "MDNA-151",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "ingles_quebrado"
+      ],
+      "input": "hello i want table saturday 8 person how much",
+      "context_injection": "",
+      "actual_response": "Good evening. Serena, from Madonna.\n\nI hold tables, not prices upfront — our menu is à la carte, no set fee per person. Average ticket sits around R$ 450 per guest, wine aside.\n\nFor Saturday, 8 guests: I have 8pm or 9:30pm. Which works?",
+      "expected_behaviors": [
+        "inglês simples e claro",
+        "frases curtas"
+      ],
+      "forbidden_behaviors": [
+        "inglês complicado",
+        "ignorar pergunta de preço",
+        "condescendente",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "How many people total? Tables are free — no reservation fee. What time Saturday?",
+      "error": null,
+      "timestamp": "2026-04-23T13:39:18.233731"
+    },
+    {
+      "case_id": "MDNA-226",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "espanhol_emergencia"
+      ],
+      "input": "Hola, quiero una mesa para el sábado a las 8, somos 4 personas",
+      "context_injection": "",
+      "actual_response": "Buenas tardes. Serena, del Madonna.\n\nConfirmo sábado 20h para cuatro. ✓\n\n¿A nombre de quién dejo la reserva?",
+      "expected_behaviors": [
+        "responde em espanhol",
+        "frases curtas",
+        "oferece horário"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "misturar idiomas",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Buenas tardes. Serena, del Madonna. Sábado 20h para cuatro — confirmado. ¿A nombre de quién?",
+      "error": null,
+      "timestamp": "2026-04-23T13:39:16.749221"
+    },
+    {
+      "case_id": "MDNA-227",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "italiano_emergencia"
+      ],
+      "input": "Buonasera, vorrei prenotare un tavolo per sabato sera alle 20, siamo in due",
+      "context_injection": "",
+      "actual_response": "Buonasera. Sono Serena, del Madonna.\n\nConfermo sabato ore 20, tavolo per due. Qualche preferenza di sala o occasione particolare?",
+      "expected_behaviors": [
+        "responde em italiano",
+        "voz Serena traduzida",
+        "mantém termos gastronômicos italianos no original"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "misturar idiomas",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Buonasera. Sono Serena, del Madonna. Sabato 20h per due — confermato. A che nome?",
+      "error": null,
+      "timestamp": "2026-04-23T13:39:17.119399"
+    },
+    {
+      "case_id": "MDNA-228",
+      "block": "cultural_linguistico",
+      "severity": "edge",
+      "tags": [
+        "frances_emergencia"
+      ],
+      "input": "Bonjour, je voudrais réserver une table pour samedi soir à 20h, pour 2 personnes",
+      "context_injection": "",
+      "actual_response": "Bonsoir. Ici Serena, du Madonna.\n\nJe confirme samedi 20h pour deux. ✓\n\nÀ quel nom je note la réservation?",
+      "expected_behaviors": [
+        "responde em francês",
+        "voz Serena traduzida",
+        "frases curtas"
+      ],
+      "forbidden_behaviors": [
+        "responder em português",
+        "misturar idiomas",
+        "frase proibida: Olá!",
+        "frase proibida: Prezado",
+        "frase proibida: Infelizmente",
+        "frase proibida: Será um prazer atendê-lo",
+        "frase proibida: processado",
+        "frase proibida: à disposição",
+        "frase proibida: Agradeço pelo contato",
+        "frase proibida: Obrigada pela preferência",
+        "frase proibida: Tenha um ótimo dia",
+        "emojis expressivos: 😊🙏🥂🍷💫",
+        "jargão corporativo"
+      ],
+      "reference_response": "Bonsoir. Serena, du Madonna. Samedi 20h pour deux — confirmé. À quel nom?",
+      "error": null,
+      "timestamp": "2026-04-23T13:39:17.118717"
+    }
+  ]
+}
