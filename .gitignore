@@ -1,0 +1,11 @@
+.DS_Store
+.env
+__pycache__/
+*.pyc
+*.zip
+*.tar.gz
+files_v*/
+_Full/results/
+_Full/serena-test-system-v*/
+node_modules/
+.next/
