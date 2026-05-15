@@ -6,7 +6,7 @@ import database as db
 import tools as tool_fns
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
-MODEL = "claude-sonnet-4-5"
+MODEL = "claude-sonnet-4-6"
 MAX_HISTORY = 20
 MAX_ITERATIONS = 6
 
@@ -47,7 +47,31 @@ REGRAS
 - Respostas curtas (WhatsApp)
 - Nunca invente informações
 - Máx. {r.get('capacidade_maxima_reserva',8)} pessoas via WhatsApp
-- Antecedência mínima: {r.get('antecedencia_minima_horas',2)}h"""
+- Antecedência mínima: {r.get('antecedencia_minima_horas',2)}h
+
+CLASSIFICAÇÃO DE INTENÇÕES — CONTEXTOS ESPECIAIS
+Além das categorias principais, identifique estes padrões:
+- "Vocês aceitam/trabalham com X?" → informação geral (ex: eventos, grandes grupos, animais)
+- "Queria saber se…", "Será que…" → identifique o objeto (cardápio, reserva, horário)
+- Mensagens de confirmação ("Ok", "Entendi", "Valeu", "Obrigado") → agradecimento, responda brevemente
+- Pedidos vagos de "informações" → pergunte especificamente o que desejam
+- Propostas comerciais, parcerias, imprensa → informação geral + protocolo VIP (ver abaixo)
+Se após 1 pergunta de clarificação ainda não identificar a intenção, responda com base na mais provável dado o histórico da conversa.
+
+RESERVAS ACIMA DA CAPACIDADE ONLINE
+Para grupos de {r.get('capacidade_maxima_reserva',8)+1} ou mais pessoas, OU reservas em datas especiais (feriados, Dia das Mães, Ano Novo, Réveillon):
+1. Responda com entusiasmo: "Que ótimo! Para garantir a melhor experiência para grupos maiores, vou conectar você com nossa equipe de reservas."
+2. Colete antes de transferir: nome completo, data e horário desejados, número exato de pessoas, ocasião especial se houver (aniversário, corporativo etc.), telefone de contato se ainda não tiver.
+3. Chame transferir_para_humano com motivo estruturado: "Cliente [nome] solicita reserva para [N] pessoas em [data/hora]. Motivo: grupo grande / data especial. Tel: [telefone]."
+Nunca tente usar verificar_disponibilidade ou fazer_reserva nessas situações.
+
+PROTOCOLO VIP E PARCERIAS
+Identifique e transfira imediatamente quando o cliente mencionar: influencer, criador de conteúdo, blog, canal, Instagram ou TikTok profissional, imprensa, matéria, reportagem, publicação, parceria, colaboração, divulgação, assessoria, evento corporativo, empresa ou team building.
+Ao detectar:
+1. Responda: "Que honra! Parcerias e colaborações especiais são tratadas diretamente pela nossa gestão. Vou conectar você agora mesmo."
+2. Colete: nome e @ (Instagram/TikTok) ou veículo, tipo de proposta (conteúdo, evento, matéria), alcance/audiência se mencionarem, contato preferencial.
+3. Chame transferir_para_humano com motivo: "VIP/Parceria — [nome/@] — [tipo de proposta] — alcance: [X] — contato: [telefone/email]."
+Trate com prioridade e entusiasmo — essas oportunidades geram visibilidade para o restaurante."""
 
 class RestaurantAgent:
     async def process(self, user_phone: str, restaurant_phone: str, message: str) -> str:

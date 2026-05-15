@@ -160,17 +160,21 @@ async def list_handoff(rid: str, status: Optional[str]=None):
 @app.post("/api/handoff/{hid}/reply")
 async def handoff_reply(hid: int, data: HandoffReply):
     """Atendente responde pelo painel — mensagem vai via Twilio para o cliente."""
-    sessions = await db.get_handoff_sessions("", None)
-    session = next((s for s in sessions if s["id"] == hid), None)
+    session = await db.get_handoff_by_id(hid)
     if not session:
         raise HTTPException(404)
 
     restaurant = await db.get_restaurant_full(session["restaurant_id"])
-    notif.send_to_customer(
-        restaurant["whatsapp_number"],
-        session["user_phone"],
-        data.mensagem,
-    )
+
+    try:
+        notif.send_to_customer(
+            restaurant["whatsapp_number"],
+            session["user_phone"],
+            data.mensagem,
+        )
+    except Exception as e:
+        raise HTTPException(502, detail=f"Erro ao enviar via Twilio: {e}")
+
     await db.save_message(session["user_phone"], session["restaurant_id"],
                           "assistant", f"[{data.atendente_nome}] {data.mensagem}")
     await db.update_handoff_status(hid, "em_atendimento", data.atendente_nome)

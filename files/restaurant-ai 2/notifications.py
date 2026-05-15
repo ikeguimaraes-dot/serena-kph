@@ -34,20 +34,29 @@ def notify_handoff(
         f"Contexto:\n{resumo}\n\n"
         f"Acesse o painel ou contate o cliente diretamente."
     )
-    client.messages.create(
-        from_=f"whatsapp:{os.environ.get('TWILIO_FROM_NUMBER','')}",
-        to=f"whatsapp:{team_whatsapp}",
-        body=body,
-    )
+    try:
+        client.messages.create(
+            from_=f"whatsapp:{os.environ.get('TWILIO_FROM_NUMBER','')}",
+            to=f"whatsapp:{team_whatsapp}",
+            body=body,
+        )
+    except Exception as e:
+        print(f"[HANDOFF-NOTIF ERROR] {team_whatsapp}: {e}")
 
-def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
-    """Envia mensagem do atendente para o cliente via Twilio."""
+
+def send_to_customer(restaurant_number: str, customer_phone: str, message: str) -> bool:
+    """Envia mensagem do atendente para o cliente via Twilio. Retorna True se enviou."""
     client = _client()
     if not client:
         print(f"[MSG → {customer_phone}]: {message}")
-        return
-    client.messages.create(
-        from_=f"whatsapp:{restaurant_number}",
-        to=f"whatsapp:{customer_phone}",
-        body=message,
-    )
+        return False
+    try:
+        client.messages.create(
+            from_=f"whatsapp:{restaurant_number}",
+            to=f"whatsapp:{customer_phone}",
+            body=message,
+        )
+        return True
+    except Exception as e:
+        print(f"[SEND ERROR → {customer_phone}]: {e}")
+        raise

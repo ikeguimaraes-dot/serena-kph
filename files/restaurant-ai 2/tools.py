@@ -4,13 +4,12 @@ Tools executadas pelo agente Claude — todas assíncronas (asyncpg).
 
 from datetime import datetime, timedelta
 import database as db
-from restaurants import get_restaurant_by_id
 
 
 async def verificar_disponibilidade(
     restaurant_id: str, data: str, hora: str, pessoas: int
 ) -> str:
-    restaurant = get_restaurant_by_id(restaurant_id)
+    restaurant = await db.get_restaurant_full(restaurant_id)
     if not restaurant:
         return "Restaurante não encontrado."
 
@@ -34,7 +33,7 @@ async def verificar_disponibilidade(
             f"Para hoje, o horário mais próximo seria {proxima}."
         )
 
-    max_size = restaurant.get("capacidade_maxima_reserva_whatsapp", 8)
+    max_size = restaurant.get("capacidade_maxima_reserva", 8)
     if pessoas > max_size:
         return (
             f"Reservas via WhatsApp são para grupos de até {max_size} pessoas. "

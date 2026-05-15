@@ -278,6 +278,11 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
             VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
     return row["id"]
 
+async def get_handoff_by_id(hid: int) -> Optional[dict]:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("SELECT * FROM handoff_sessions WHERE id=$1", hid)
+    return dict(row) if row else None
+
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
     q = "SELECT * FROM handoff_sessions WHERE restaurant_id=$1"
     params: list = [rid]
@@ -300,7 +305,7 @@ async def update_handoff_status(hid: int, status: str, atendente: Optional[str]=
 
 async def is_in_handoff(user_phone: str, rid: str) -> bool:
     async with pool().acquire() as c:
-        row = await pool().acquire() if False else await c.fetchrow("""
+        row = await c.fetchrow("""
             SELECT id FROM handoff_sessions
             WHERE user_phone=$1 AND restaurant_id=$2
               AND status IN ('aguardando','em_atendimento')
