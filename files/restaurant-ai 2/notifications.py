@@ -50,9 +50,12 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str) 
     if not client:
         print(f"[MSG → {customer_phone}]: {message}")
         return False
+    # Usa TWILIO_FROM_NUMBER se disponível; cai no número do restaurante como fallback.
+    # O número configurado no Twilio pode diferir do número cadastrado no banco.
+    from_number = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
     try:
         client.messages.create(
-            from_=f"whatsapp:{restaurant_number}",
+            from_=f"whatsapp:{from_number}",
             to=f"whatsapp:{customer_phone}",
             body=message,
         )
