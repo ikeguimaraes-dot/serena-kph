@@ -389,6 +389,65 @@ async def report_peak_hours(rid: str) -> list[dict]:
             GROUP BY hora ORDER BY total DESC""", rid)
     return [dict(r) for r in rows]
 
+# ── Contatos CRM ──────────────────────────────────────────────
+
+async def get_contacts(limit: int = 100, search: str = "") -> list[dict]:
+    async with pool().acquire() as c:
+        if search:
+            rows = await c.fetch("""
+                SELECT celular, nome, sobrenome, tier, estagio_kanban,
+                       ultima_visita, frequencia_visitas, total_handoffs, tags
+                FROM contacts
+                WHERE celular ILIKE $1 OR nome ILIKE $1 OR sobrenome ILIKE $1
+                ORDER BY ultima_visita DESC NULLS LAST
+                LIMIT $2""", f"%{search}%", limit)
+        else:
+            rows = await c.fetch("""
+                SELECT celular, nome, sobrenome, tier, estagio_kanban,
+                       ultima_visita, frequencia_visitas, total_handoffs, tags
+                FROM contacts
+                ORDER BY ultima_visita DESC NULLS LAST
+                LIMIT $1""", limit)
+    return [dict(r) for r in rows]
+
+async def get_contact_profile(celular: str) -> Optional[dict]:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("SELECT * FROM contacts WHERE celular=$1", celular)
+    return dict(row) if row else None
+
+async def upsert_contact(data: dict) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO contacts (celular, nome, sobrenome, email, tags, notas)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (celular) DO UPDATE SET
+                nome      = COALESCE(EXCLUDED.nome,      contacts.nome),
+                sobrenome = COALESCE(EXCLUDED.sobrenome, contacts.sobrenome),
+                email     = COALESCE(EXCLUDED.email,     contacts.email),
+                tags      = COALESCE(EXCLUDED.tags,      contacts.tags),
+                notas     = COALESCE(EXCLUDED.notas,     contacts.notas)
+            RETURNING id, celular""",
+            data["celular"], data.get("nome"), data.get("sobrenome"),
+            data.get("email"), data.get("tags", []), data.get("notas"))
+    return dict(row)
+
+async def update_contact(celular: str, data: dict) -> bool:
+    fields = [f"{k}=${i+2}" for i, k in enumerate(data.keys())]
+    if not fields:
+        return False
+    async with pool().acquire() as c:
+        r = await c.execute(
+            f"UPDATE contacts SET {','.join(fields)} WHERE celular=$1",
+            celular, *data.values())
+    return r.split()[-1] != "0"
+
+async def move_contact_kanban(celular: str, estagio: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute(
+            "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1", celular, estagio)
+    return r.split()[-1] != "0"
+
+
 async def report_conversion(rid: str) -> dict:
     async with pool().acquire() as c:
         total_conv = await c.fetchval(

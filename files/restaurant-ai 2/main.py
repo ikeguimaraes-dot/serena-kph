@@ -200,6 +200,56 @@ async def get_conversation(user_phone: str, rid: str):
 
 
 # ════════════════════════════════════════════════════════════════
+# CONTATOS CRM
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/contacts")
+async def list_contacts(limit: int = 100, q: str = ""):
+    return await db.get_contacts(limit=limit, search=q)
+
+@app.post("/api/contacts", status_code=201)
+async def upsert_contact(data: dict):
+    if not data.get("celular"):
+        raise HTTPException(400, "celular obrigatório")
+    return await db.upsert_contact(data)
+
+@app.get("/api/contacts/search")
+async def search_contacts(q: str, limit: int = 50):
+    return await db.get_contacts(limit=limit, search=q)
+
+@app.get("/api/contacts/{celular}")
+async def get_contact(celular: str):
+    contact = await db.get_contact_profile(celular)
+    if not contact:
+        raise HTTPException(404)
+    return contact
+
+@app.get("/api/contacts/{celular}/reservations")
+async def contact_reservations(celular: str, rid: str, limit: int = 20):
+    return await db.get_reservations_by_user(celular, rid)
+
+@app.get("/api/contacts/{celular}/conversations")
+async def contact_conversations(celular: str, rid: str, limit: int = 100):
+    return await db.get_history(celular, rid, limit=limit)
+
+@app.patch("/api/contacts/{celular}")
+async def update_contact(celular: str, data: dict):
+    data.pop("celular", None)
+    if not await db.update_contact(celular, data):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.patch("/api/contacts/{celular}/kanban")
+async def move_kanban(celular: str, data: dict):
+    estagio = data.get("estagio_kanban")
+    if not estagio:
+        raise HTTPException(400, "estagio_kanban obrigatório")
+    if not await db.move_contact_kanban(celular, estagio):
+        raise HTTPException(404)
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════
 # EQUIPE
 # ════════════════════════════════════════════════════════════════
 
