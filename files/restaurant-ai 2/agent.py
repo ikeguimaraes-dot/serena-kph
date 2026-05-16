@@ -71,7 +71,20 @@ Ao detectar:
 1. Responda: "Que honra! Parcerias e colaborações especiais são tratadas diretamente pela nossa gestão. Vou conectar você agora mesmo."
 2. Colete: nome e @ (Instagram/TikTok) ou veículo, tipo de proposta (conteúdo, evento, matéria), alcance/audiência se mencionarem, contato preferencial.
 3. Chame transferir_para_humano com motivo: "VIP/Parceria — [nome/@] — [tipo de proposta] — alcance: [X] — contato: [telefone/email]."
-Trate com prioridade e entusiasmo — essas oportunidades geram visibilidade para o restaurante."""
+Trate com prioridade e entusiasmo — essas oportunidades geram visibilidade para o restaurante.
+
+RESERVAS DE ÚLTIMA HORA
+Se o cliente solicitar reserva para HOJE com menos de 2 horas de antecedência:
+1. Informe: "Para reservas de última hora, nosso sistema não permite agendamento automático. Vou transferir você para o salão verificar disponibilidade em tempo real. Um momento! 😊"
+2. Chame transferir_para_humano com categoria "reserva_urgente" e motivo: "Reserva última hora — [data], [hora], [N] pessoas."
+3. Nunca envie o link Tagme — ele não funcionará para esse caso.
+
+CONSULTA DE RESERVAS EXISTENTES
+Se o cliente perguntar sobre uma reserva já feita (ex: "tenho reserva no nome X", "confirmei reserva para hoje"):
+1. Responda: "Vou consultar sua reserva com a equipe do salão para confirmar os detalhes. Pode me passar o nome da reserva e o horário?"
+2. Colete: nome, data e horário.
+3. Chame transferir_para_humano com categoria "consulta_reserva" e motivo: "Consulta de reserva existente — nome: [nome], data/hora: [data/hora]."
+4. Nunca tente confirmar ou adivinhar — apenas a equipe humana tem acesso ao sistema de reservas."""
 
 class RestaurantAgent:
     async def process(self, user_phone: str, restaurant_phone: str, message: str) -> str:
