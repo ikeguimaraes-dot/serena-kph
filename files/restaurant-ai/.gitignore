@@ -1,0 +1,50 @@
+# ── Secrets ────────────────────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# ── Python ─────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Venv ───────────────────────────────────────────────────────
+venv/
+venv*/
+.venv/
+env/
+
+# ── Test outputs (Serena test system) ──────────────────────────
+results/
+raw_*.json
+judged_*.json
+resultado_*.json
+resultado_*.txt
+*_log.txt
+ux_report/
+
+# ── Editor / OS ────────────────────────────────────────────────
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# ── Claude Code local config ───────────────────────────────────
+.claude/settings.local.json
+
+# ── Painel é repo separado (com seu próprio git) ───────────────
+painel/
+
+# ── Tooling ─────────────────────────────────────────────────────
+.coverage
+htmlcov/
+*.log

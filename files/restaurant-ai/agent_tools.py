@@ -1,0 +1,123 @@
+"""Módulo: schema das tools e dispatcher."""
+
+from datetime import datetime
+import tools as tool_fns
+import tagme_handlers
+
+
+TOOLS = [
+    {"name":"consultar_reserva","description":"Consulta reserva existente pelo nome do titular ou telefone no sistema Tagme. Use quando o cliente perguntar sobre reserva já feita.",
+     "input_schema":{"type":"object","properties":{
+         "nome":{"type":"string","description":"Nome do titular da reserva"},
+         "data":{"type":"string","description":"Data da reserva (DD/MM/AAAA)"},
+         "telefone":{"type":"string","description":"Telefone do cliente (opcional)"},
+     },"required":["nome"]}},
+    {"name":"cancelar_reserva","description":"Cancela reserva existente no Tagme. Use apenas quando o cliente confirmar explicitamente que quer cancelar.",
+     "input_schema":{"type":"object","properties":{
+         "reserva_id":{"type":"string","description":"ID da reserva a cancelar"},
+         "nome":{"type":"string","description":"Nome do titular da reserva"},
+         "motivo":{"type":"string","description":"Motivo do cancelamento (opcional)"},
+     },"required":["nome"]}},
+    {"name":"transferir_para_humano","description":"Transfere para atendente. Use quando cliente pedir, reclamação grave, ou situação que você não resolve.",
+     "input_schema":{"type":"object","properties":{"motivo":{"type":"string"}},"required":["motivo"]}},
+    {"name":"update_contact","description":(
+        "Salva silenciosamente dados do cliente no CRM quando surgirem naturalmente na conversa — "
+        "nome, ocasião (aniversário, corporativo, romântico, confraternização, amigos, familiar), "
+        "restrição alimentar (vegetariano, vegano, sem glúten, sem lactose, alergia a X, halal, kosher), "
+        "email, data de nascimento, canal de entrada (Instagram, Google, indicação), ou notas relevantes. "
+        "NUNCA peça esses dados como formulário. Só chame quando o cliente mencionar de forma espontânea. "
+        "Passe só os campos novos — campos omitidos não apagam o existente. Listas são mescladas, não substituídas. "
+        "Não confirme pro cliente que salvou."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "nome":{"type":"string"}, "sobrenome":{"type":"string"},
+        "email":{"type":"string"},
+        "data_nascimento":{"type":"string","description":"ISO YYYY-MM-DD"},
+        "ocasiao":{"type":"array","items":{"type":"string"}},
+        "restricoes_alimentares":{"type":"array","items":{"type":"string"}},
+        "canal_entrada":{"type":"string"},
+        "tags":{"type":"array","items":{"type":"string"}},
+        "notas":{"type":"string"}
+     },"required":[]}},
+    {"name":"lookup_menu","description":(
+        "Busca pratos ou categorias no cardápio quando o cliente perguntar sobre comida, "
+        "bebida, opções vegetarianas, sem glúten, ou preço de item específico."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "termo":{"type":"string","description":"Nome do prato, categoria ou restrição alimentar"}
+     },"required":["termo"]}},
+    {"name":"check_business_hours","description":(
+        "Verifica se o restaurante está aberto em uma data específica, considerando datas especiais."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "data":{"type":"string","description":"Data no formato YYYY-MM-DD ou descrição como 'hoje', 'amanhã'"}
+     },"required":["data"]}},
+    {"name":"get_reservation_link","description":(
+        "Gera link do Tagme pré-preenchido com data, horário e número de pessoas."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "pessoas":{"type":"integer","description":"Número de pessoas"},
+        "data":{"type":"string","description":"Data desejada (YYYY-MM-DD ou texto)"},
+        "horario":{"type":"string","description":"Horário desejado (ex: '20:00', '21h30')"}
+     },"required":[]}},
+    {"name":"lookup_contact_history","description":(
+        "Consulta histórico de visitas, reservas anteriores e preferências do cliente atual."
+     ),
+     "input_schema":{"type":"object","properties":{},"required":[]}},
+]
+
+
+async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> str:
+    """Dispatcher de tools — mapeia nome → função. Captura exceções graciosamente."""
+    try:
+        if name == "consultar_reserva":
+            filter_date = None
+            if inputs.get("data"):
+                try:
+                    filter_date = datetime.strptime(inputs["data"], "%d/%m/%Y").date()
+                except Exception:
+                    pass
+            phone = inputs.get("telefone") or user_phone
+            return await tagme_handlers.handle_consultar_reserva(phone, filter_date)
+
+        if name == "cancelar_reserva":
+            return await tagme_handlers.handle_cancelar_reserva(
+                user_phone, inputs.get("reserva_id")
+            )
+
+        if name == "transferir_para_humano":
+            return await tool_fns.transferir_para_humano(inputs["motivo"])
+
+        if name == "update_contact":
+            return await tool_fns.update_contact(
+                user_phone=user_phone,
+                nome=inputs.get("nome"),
+                sobrenome=inputs.get("sobrenome"),
+                email=inputs.get("email"),
+                data_nascimento=inputs.get("data_nascimento"),
+                ocasiao=inputs.get("ocasiao"),
+                restricoes_alimentares=inputs.get("restricoes_alimentares"),
+                canal_entrada=inputs.get("canal_entrada"),
+                tags=inputs.get("tags"),
+                notas=inputs.get("notas"),
+            )
+
+        if name == "lookup_menu":
+            return await tool_fns.lookup_menu(rid, inputs.get("termo", ""))
+
+        if name == "check_business_hours":
+            return await tool_fns.check_business_hours(rid, inputs.get("data", ""))
+
+        if name == "get_reservation_link":
+            return tool_fns.get_reservation_link(
+                pessoas=inputs.get("pessoas"),
+                data=inputs.get("data"),
+                horario=inputs.get("horario"),
+            )
+
+        if name == "lookup_contact_history":
+            return await tool_fns.lookup_contact_history(user_phone, rid)
+
+        return f"Tool desconhecida: {name}"
+    except Exception as e:
+        return f"Erro: {e}"

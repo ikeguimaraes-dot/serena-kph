@@ -1,0 +1,13 @@
+venv/
+venv 2/
+painel/node_modules/
+painel/.next/
+__pycache__/
+*.pyc
+*.pyo
+.DS_Store
+.env
+.env.local
+*.json.bak
+corpus/
+test_results/
