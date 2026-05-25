@@ -1,0 +1,30 @@
+name: Smoke test pós-deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Aguarda Railway subir (90s)
+        run: sleep 90
+
+      - name: Roda smoke test
+        env:
+          BACKEND_URL: https://restaurant-ai-production-bb5d.up.railway.app
+          TWILIO_FROM_NUMBER: ${{ secrets.TWILIO_FROM_NUMBER }}
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          SMOKE_TEST_PHONE: "+5511999000000"
+        run: python files/restaurant-ai/smoke_test.py
