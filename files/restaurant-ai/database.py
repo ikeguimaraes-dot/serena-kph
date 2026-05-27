@@ -34,6 +34,18 @@ def pool() -> asyncpg.Pool:
 
 # ── Restaurantes ──────────────────────────────────────────────
 
+async def ensure_restaurant(rid: str, nome: str, whatsapp_number: str):
+    """Insere o restaurante/agente no banco de dados se não existir.
+    Caso o whatsapp_number exista sob outro ID, atualiza o ID e nome (upsert)."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow("SELECT id FROM restaurants WHERE id=$1", rid)
+        if not row:
+            await c.execute("""
+                INSERT INTO restaurants (id, nome, whatsapp_number, ativo)
+                VALUES ($1, $2, $3, true)
+                ON CONFLICT (whatsapp_number) DO UPDATE SET id=EXCLUDED.id, nome=EXCLUDED.nome, ativo=true
+            """, rid, nome, whatsapp_number)
+
 async def get_restaurant_by_whatsapp(number: str) -> Optional[dict]:
     async with pool().acquire() as c:
         row = await c.fetchrow(
@@ -922,7 +934,7 @@ async def update_serena_metric_categoria(metric_id: str, categoria: str):
 
 # ── Agregações para /api/serena/* ──────────────────────────────
 
-async def serena_overview(days: int = 7) -> dict:
+async def serena_overview(days: int = 7, restaurant_id: Optional[str] = None) -> dict:
     p = pool()
     d = int(days)
     (
@@ -931,21 +943,21 @@ async def serena_overview(days: int = 7) -> dict:
         handoffs_n, pediram_humano, admitiu_nao_saber,
         enviou_tagme, intent_desconhecidas,
     ) = await asyncio.gather(
-        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COUNT(DISTINCT user_phone) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COALESCE(SUM(custo_usd),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COALESCE(SUM(tokens_input),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COALESCE(SUM(tokens_output),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COALESCE(AVG(latencia_ms),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')", d),
-        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND handoff_acionado=TRUE", d),
-        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND cliente_pediu_humano=TRUE", d),
-        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND serena_admitiu_nao_saber=TRUE", d),
-        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND enviou_link_tagme=TRUE", d),
+        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COUNT(DISTINCT user_phone) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COALESCE(SUM(custo_usd),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COALESCE(SUM(tokens_input),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COALESCE(SUM(tokens_output),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COALESCE(AVG(latencia_ms),0) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND handoff_acionado=TRUE AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND cliente_pediu_humano=TRUE AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND serena_admitiu_nao_saber=TRUE AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
+        p.fetchval("SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') AND enviou_link_tagme=TRUE AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id),
         # Hotfix 2 — taxa de "desconhecida". Conta NULL (rows pré-Hotfix 2) E
         # a string literal (rows pós-Hotfix 2). Alerta se > 15%.
         p.fetchval(
             "SELECT COUNT(*) FROM serena_metrics WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day') "
-            "AND (intencao_detectada IS NULL OR intencao_detectada = 'desconhecida')", d
+            "AND (intencao_detectada IS NULL OR intencao_detectada = 'desconhecida') AND ($2::text IS NULL OR restaurant_id = $2)", d, restaurant_id
         ),
     )
     taxa_resolucao = (
@@ -972,7 +984,7 @@ async def serena_overview(days: int = 7) -> dict:
     }
 
 
-async def serena_handoffs_categorizados(days: int = 30) -> list[dict]:
+async def serena_handoffs_categorizados(days: int = 30, restaurant_id: Optional[str] = None) -> list[dict]:
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT COALESCE(handoff_categoria, 'sem_categoria') AS categoria,
@@ -982,8 +994,9 @@ async def serena_handoffs_categorizados(days: int = 30) -> list[dict]:
             FROM serena_metrics
             WHERE handoff_acionado=TRUE
               AND horario_conversa >= NOW() - ($1 * INTERVAL '1 day')
+              AND ($2::text IS NULL OR restaurant_id = $2)
             GROUP BY handoff_categoria
-            ORDER BY n DESC""", int(days))
+            ORDER BY n DESC""", int(days), restaurant_id)
     out = []
     for r in rows:
         d = dict(r)
@@ -994,7 +1007,7 @@ async def serena_handoffs_categorizados(days: int = 30) -> list[dict]:
     return out
 
 
-async def serena_intents(days: int = 30) -> list[dict]:
+async def serena_intents(days: int = 30, restaurant_id: Optional[str] = None) -> list[dict]:
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT COALESCE(intencao_detectada, 'desconhecida') AS intencao,
@@ -1002,12 +1015,13 @@ async def serena_intents(days: int = 30) -> list[dict]:
                    COUNT(*) FILTER (WHERE handoff_acionado=TRUE) AS handoffs
             FROM serena_metrics
             WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')
+              AND ($2::text IS NULL OR restaurant_id = $2)
             GROUP BY intencao_detectada
-            ORDER BY n DESC""", int(days))
+            ORDER BY n DESC""", int(days), restaurant_id)
     return [dict(r) for r in rows]
 
 
-async def serena_friccoes(days: int = 14, limit: int = 30, offset: int = 0) -> list[dict]:
+async def serena_friccoes(days: int = 14, limit: int = 30, offset: int = 0, restaurant_id: Optional[str] = None) -> list[dict]:
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT id::text, user_phone, restaurant_id,
@@ -1018,12 +1032,13 @@ async def serena_friccoes(days: int = 14, limit: int = 30, offset: int = 0) -> l
               AND (cliente_pediu_humano=TRUE
                    OR serena_admitiu_nao_saber=TRUE
                    OR num_mensagens >= 10)
+              AND ($4::text IS NULL OR restaurant_id = $4)
             ORDER BY horario_conversa DESC
-            LIMIT $2 OFFSET $3""", int(days), limit, offset)
+            LIMIT $2 OFFSET $3""", int(days), limit, offset, restaurant_id)
     return [dict(r) for r in rows]
 
 
-async def serena_tools_stats(days: int = 30) -> list[dict]:
+async def serena_tools_stats(days: int = 30, restaurant_id: Optional[str] = None) -> list[dict]:
     """Conta ocorrências por nome de tool (unnest do array)."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
@@ -1033,13 +1048,14 @@ async def serena_tools_stats(days: int = 30) -> list[dict]:
                 FROM serena_metrics
                 WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')
                   AND tools_chamadas IS NOT NULL
+                  AND ($2::text IS NULL OR restaurant_id = $2)
             ) t
             GROUP BY tool
-            ORDER BY n DESC""", int(days))
+            ORDER BY n DESC""", int(days), restaurant_id)
     return [dict(r) for r in rows]
 
 
-async def serena_custo(days: int = 30) -> dict:
+async def serena_custo(days: int = 30, restaurant_id: Optional[str] = None) -> dict:
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT date_trunc('day', horario_conversa)::date AS dia,
@@ -1049,14 +1065,16 @@ async def serena_custo(days: int = 30) -> dict:
                    COUNT(*) AS turnos
             FROM serena_metrics
             WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')
-            GROUP BY dia ORDER BY dia""", int(days))
+              AND ($2::text IS NULL OR restaurant_id = $2)
+            GROUP BY dia ORDER BY dia""", int(days), restaurant_id)
         top = await c.fetch("""
             SELECT user_phone, SUM(custo_usd) AS custo, COUNT(*) AS n
             FROM serena_metrics
             WHERE horario_conversa >= NOW() - ($1 * INTERVAL '1 day')
+              AND ($2::text IS NULL OR restaurant_id = $2)
             GROUP BY user_phone
             ORDER BY custo DESC NULLS LAST
-            LIMIT 10""", int(days))
+            LIMIT 10""", int(days), restaurant_id)
     serie = [{"dia": r["dia"].isoformat() if r["dia"] else None,
               "custo": float(r["custo"] or 0),
               "tokens_input": int(r["tin"] or 0),
@@ -1073,17 +1091,24 @@ async def serena_custo(days: int = 30) -> dict:
     }
 
 
-async def serena_recent(limit: int = 100, only_handoffs: bool = False) -> list[dict]:
-    cond = "WHERE handoff_acionado=TRUE" if only_handoffs else ""
+async def serena_recent(limit: int = 100, only_handoffs: bool = False, restaurant_id: Optional[str] = None) -> list[dict]:
+    conds = []
+    params = [limit]
+    if only_handoffs:
+        conds.append("handoff_acionado=TRUE")
+    if restaurant_id:
+        params.append(restaurant_id)
+        conds.append(f"restaurant_id=${len(params)}")
+    where = f"WHERE {' AND '.join(conds)}" if conds else ""
     async with pool().acquire() as c:
         rows = await c.fetch(f"""
             SELECT id::text, user_phone, restaurant_id,
                    horario_conversa, handoff_acionado, handoff_categoria,
                    handoff_motivo, custo_usd, latencia_ms, tools_chamadas
             FROM serena_metrics
-            {cond}
+            {where}
             ORDER BY horario_conversa DESC
-            LIMIT $1""", limit)
+            LIMIT $1""", *params)
     return [dict(r) for r in rows]
 
 
@@ -1208,7 +1233,7 @@ async def list_weekly_reports(limit: int = 12) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def export_serena_for_training(limit: int = 1000) -> list[dict]:
+async def export_serena_for_training(limit: int = 1000, restaurant_id: Optional[str] = None) -> list[dict]:
     """Export para fine-tune: pares (user_msg, serena_msg) das últimas conversas
     onde a Serena resolveu sem handoff."""
     async with pool().acquire() as c:
@@ -1218,13 +1243,14 @@ async def export_serena_for_training(limit: int = 1000) -> list[dict]:
               FROM serena_metrics
               WHERE handoff_acionado=FALSE
                 AND horario_conversa >= NOW() - INTERVAL '60 days'
+                AND ($2::text IS NULL OR restaurant_id = $2)
               GROUP BY user_phone, restaurant_id
             )
             SELECT cv.user_phone, cv.restaurant_id, cv.role, cv.content, cv.created_at
             FROM conversations cv
             JOIN ok USING (user_phone, restaurant_id)
             ORDER BY cv.user_phone, cv.created_at
-            LIMIT $1""", limit)
+            LIMIT $1""", limit, restaurant_id)
     return [dict(r) for r in rows]
 
 
@@ -1237,3 +1263,94 @@ async def update_handoff_kanban(hid: int, stage: str) -> bool:
         r = await c.execute(
             "UPDATE handoff_sessions SET status=$1 WHERE id=$2", stage, hid)
     return int(r.split()[-1]) > 0
+
+
+# ── Agenda própria — Serena 2.0 ───────────────────────────────
+
+async def get_turnos(restaurant_id: str, dia_semana: int) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT * FROM agenda_turnos
+            WHERE restaurant_id = $1 AND dia_semana = $2 AND ativo = true
+            ORDER BY hora_inicio
+        """, restaurant_id, dia_semana)
+    return [dict(r) for r in rows]
+
+
+async def check_disponibilidade(restaurant_id: str, data: str, turno_id: str, posicoes: int) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            SELECT verificar_disponibilidade($1, $2::DATE, $3::UUID, $4) as resultado
+        """, restaurant_id, data, turno_id, posicoes)
+    return row["resultado"]
+
+
+async def criar_reserva(data: dict) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO reservas (
+                restaurant_id, turno_id, evento_id,
+                cliente_phone, cliente_nome, cliente_email,
+                data, hora_inicio, posicoes, canal, observacoes,
+                pagamento_status, pagamento_valor
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+            RETURNING *
+        """,
+        data["restaurant_id"], data.get("turno_id"), data.get("evento_id"),
+        data["cliente_phone"], data["cliente_nome"], data.get("cliente_email"),
+        data["data"], data["hora_inicio"], data["posicoes"],
+        data.get("canal", "whatsapp"), data.get("observacoes"),
+        data.get("pagamento_status", "nao_requerido"), data.get("pagamento_valor"))
+    return dict(row)
+
+
+async def get_reserva(reserva_id: str) -> Optional[dict]:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("SELECT * FROM reservas WHERE id = $1", reserva_id)
+    return dict(row) if row else None
+
+
+async def get_reservas_por_phone(restaurant_id: str, phone: str) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT * FROM reservas
+            WHERE restaurant_id = $1 AND cliente_phone = $2
+            AND status IN ('pendente','confirmada')
+            ORDER BY data DESC, hora_inicio DESC
+            LIMIT 5
+        """, restaurant_id, phone)
+    return [dict(r) for r in rows]
+
+
+async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
+    async with pool().acquire() as c:
+        result = await c.execute("""
+            UPDATE reservas SET status = 'cancelada'
+            WHERE id = $1 AND restaurant_id = $2
+            AND status IN ('pendente','confirmada')
+        """, reserva_id, restaurant_id)
+    return int(result.split()[-1]) > 0
+
+
+async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias: int = 7) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT
+                t.id as turno_id,
+                t.nome as turno_nome,
+                t.hora_inicio,
+                t.hora_fim,
+                t.capacidade_posicoes_max,
+                d.data,
+                EXTRACT(DOW FROM d.data)::INT as dia_semana,
+                COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0) as posicoes_ocupadas,
+                t.capacidade_posicoes_max - COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0) as posicoes_disponiveis
+            FROM generate_series($2::DATE, $2::DATE + ($3 - 1) * INTERVAL '1 day', INTERVAL '1 day') d(data)
+            JOIN agenda_turnos t ON t.restaurant_id = $1 AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT AND t.ativo = true
+            LEFT JOIN reservas r ON r.turno_id = t.id AND r.data = d.data::DATE
+            LEFT JOIN agenda_bloqueios b ON b.restaurant_id = $1 AND b.data_inicio::DATE <= d.data::DATE AND b.data_fim::DATE >= d.data::DATE
+            WHERE b.id IS NULL
+            GROUP BY t.id, t.nome, t.hora_inicio, t.hora_fim, t.capacidade_posicoes_max, d.data
+            ORDER BY d.data, t.hora_inicio
+        """, restaurant_id, data_inicio, dias)
+    return [dict(r) for r in rows]

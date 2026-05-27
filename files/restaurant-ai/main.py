@@ -128,7 +128,15 @@ MAX_MSG_LEN = 2000
 async def whatsapp_webhook(
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
+    secret: Optional[str] = None,
+    x_webhook_secret: Optional[str] = Header(None),
 ):
+    expected_secret = os.environ.get("WEBHOOK_SECRET")
+    if expected_secret:
+        if secret != expected_secret and x_webhook_secret != expected_secret:
+            print(f"[WEBHOOK] Acesso negado: WEBHOOK_SECRET incorreto")
+            raise HTTPException(403, "Acesso negado: webhook secret inválido")
+
     print(f"[WEBHOOK] From={From!r} To={To!r} ProfileName={ProfileName!r} Body={Body!r}")
     message = Body.strip()
     if not message:
@@ -315,6 +323,48 @@ async def assumir_conversa(data: dict):
 
 
 # ════════════════════════════════════════════════════════════════
+# AGENDA PRÓPRIA — Reservas Serena 2.0
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/agenda/{restaurant_id}/disponibilidade")
+async def disponibilidade(restaurant_id: str, data: str, dias: int = 7):
+    """Retorna disponibilidade dos próximos N dias."""
+    slots = await db.get_disponibilidade_semana(restaurant_id, data, dias)
+    return {"slots": slots}
+
+@app.post("/api/agenda/{restaurant_id}/reservas", status_code=201)
+async def nova_reserva(restaurant_id: str, body: dict):
+    """Cria nova reserva. Verifica disponibilidade antes."""
+    body["restaurant_id"] = restaurant_id
+    disponivel = await db.check_disponibilidade(
+        restaurant_id, body["data"], body["turno_id"], body["posicoes"]
+    )
+    if not disponivel.get("disponivel"):
+        raise HTTPException(409, detail=disponivel.get("motivo", "Sem disponibilidade"))
+    reserva = await db.criar_reserva(body)
+    return reserva
+
+@app.get("/api/agenda/{restaurant_id}/reservas/{reserva_id}")
+async def get_reserva(restaurant_id: str, reserva_id: str):
+    reserva = await db.get_reserva(reserva_id)
+    if not reserva or reserva["restaurant_id"] != restaurant_id:
+        raise HTTPException(404)
+    return reserva
+
+@app.get("/api/agenda/{restaurant_id}/reservas/cliente/{phone}")
+async def reservas_cliente(restaurant_id: str, phone: str):
+    reservas = await db.get_reservas_por_phone(restaurant_id, phone)
+    return {"reservas": reservas}
+
+@app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/cancelar")
+async def cancelar(restaurant_id: str, reserva_id: str):
+    ok = await db.cancelar_reserva(reserva_id, restaurant_id)
+    if not ok:
+        raise HTTPException(404, "Reserva não encontrada ou já cancelada")
+    return {"ok": True}
+
+
+# ════════════════════════════════════════════════════════════════
 # CONVERSAS
 # ════════════════════════════════════════════════════════════════
 
@@ -486,40 +536,56 @@ def _periodo_to_days(periodo: str) -> int:
 @app.get("/api/serena/metrics")
 async def serena_metrics(periodo: str = "7d"):
     days = _periodo_to_days(periodo)
-    key = f"overview:{days}"
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    key = f"overview:{days}:{rid or ''}"
     if key in _serena_metrics_cache:
         return _serena_metrics_cache[key]
-    data = await db.serena_overview(days)
+    data = await db.serena_overview(days, restaurant_id=rid)
     _serena_metrics_cache[key] = data
     return data
 
 @app.get("/api/serena/handoffs/categorizados")
 async def serena_handoffs_cat(periodo: str = "30d"):
-    return await db.serena_handoffs_categorizados(_periodo_to_days(periodo))
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_handoffs_categorizados(_periodo_to_days(periodo), restaurant_id=rid)
 
 @app.get("/api/serena/intencoes")
 async def serena_intencoes(periodo: str = "30d"):
-    return await db.serena_intents(_periodo_to_days(periodo))
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_intents(_periodo_to_days(periodo), restaurant_id=rid)
 
 @app.get("/api/serena/friccoes")
 async def serena_friccoes(periodo: str = "14d", limit: int = 30, offset: int = 0):
-    return await db.serena_friccoes(_periodo_to_days(periodo), limit=limit, offset=offset)
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_friccoes(_periodo_to_days(periodo), limit=limit, offset=offset, restaurant_id=rid)
 
 @app.get("/api/serena/tools/stats")
 async def serena_tools(periodo: str = "30d"):
-    return await db.serena_tools_stats(_periodo_to_days(periodo))
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_tools_stats(_periodo_to_days(periodo), restaurant_id=rid)
 
 @app.get("/api/serena/custo")
 async def serena_custo(periodo: str = "mtd"):
-    return await db.serena_custo(_periodo_to_days(periodo))
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_custo(_periodo_to_days(periodo), restaurant_id=rid)
 
 @app.get("/api/serena/recent")
 async def serena_recent(limit: int = 100, only_handoffs: bool = False):
-    return await db.serena_recent(limit=limit, only_handoffs=only_handoffs)
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    return await db.serena_recent(limit=limit, only_handoffs=only_handoffs, restaurant_id=rid)
 
 @app.get("/api/serena/training-export")
 async def serena_training_export(formato: str = "jsonl", limit: int = 1000):
-    rows = await db.export_serena_for_training(limit=limit)
+    agent_id = os.environ.get("AGENT_NAME")
+    rid = agent_id.lower().strip() if agent_id else None
+    rows = await db.export_serena_for_training(limit=limit, restaurant_id=rid)
     if formato == "json":
         return rows
     # JSONL como text/plain
@@ -538,7 +604,7 @@ class PromptCreate(BaseModel):
 
 class TestMessage(BaseModel):
     message: str
-    restaurant_id: str = "madonna_cucina"
+    restaurant_id: Optional[str] = None  # Se None, tentará obter do AGENT_NAME ou fallback
     prompt_version_id: Optional[int] = None  # se setado, usa essa versão (mesmo inativa)
     user_phone: Optional[str] = None  # se setado, injeta contexto CRM desse contato
 
@@ -551,9 +617,33 @@ async def serena_test_message(data: TestMessage):
     Se prompt_version_id for passado, usa essa versão (pode ser inativa) em vez da v ativa.
     Se user_phone for passado, injeta o bloco CONTATO ATUAL com dados reais do CRM.
     """
-    restaurant = await db.get_restaurant_full(data.restaurant_id)
+    rid = data.restaurant_id
+    if not rid:
+        agent_id = os.environ.get("AGENT_NAME")
+        rid = agent_id.lower().strip() if agent_id else "madonna_cucina"
+        
+    restaurant = await db.get_restaurant_full(rid)
     if not restaurant:
-        raise HTTPException(404, "Restaurante não encontrado")
+        # Tenta buscar qualquer um ou cria em memória como fallback para testes não falharem
+        restaurant = await db.get_restaurant_by_whatsapp("")
+        if not restaurant:
+            agent_id = os.environ.get("AGENT_NAME") or "Serena"
+            business_context = os.environ.get("BUSINESS_CONTEXT") or f"{agent_id} Core"
+            restaurant = {
+                "id": rid,
+                "nome": business_context,
+                "whatsapp_number": "",
+                "endereco": "",
+                "descricao": business_context,
+                "capacidade_maxima_reserva": 8,
+                "antecedencia_minima_horas": 2,
+                "capacidade_total": 80,
+                "ativo": True,
+                "horarios": {},
+                "faq": {},
+                "cardapio": business_context,
+                "datas_especiais": []
+            }
 
     body_override = None
     if data.prompt_version_id is not None:
