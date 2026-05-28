@@ -64,6 +64,27 @@ TOOLS = [
         "Consulta histórico de visitas, reservas anteriores e preferências do cliente atual."
      ),
      "input_schema":{"type":"object","properties":{},"required":[]}},
+    {"name":"verificar_disponibilidade","description":(
+        "Verifica horários disponíveis na agenda do restaurante para uma data e número de pessoas. "
+        "Use SEMPRE antes de fazer_reserva. Retorna os turnos com vagas e seus IDs."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "data":{"type":"string","description":"Data desejada (YYYY-MM-DD, 'amanhã', 'sexta', etc.)"},
+        "pessoas":{"type":"integer","description":"Número de pessoas"}
+     },"required":["data","pessoas"]}},
+    {"name":"fazer_reserva","description":(
+        "Cria uma reserva na agenda própria. "
+        "Só chame após verificar_disponibilidade E confirmar data, horário e nome com o cliente."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "nome":{"type":"string","description":"Nome completo do titular"},
+        "data":{"type":"string","description":"Data da reserva (YYYY-MM-DD)"},
+        "turno_id":{"type":"string","description":"UUID do turno retornado por verificar_disponibilidade"},
+        "hora_inicio":{"type":"string","description":"Horário do turno (HH:MM)"},
+        "pessoas":{"type":"integer","description":"Número de pessoas"},
+        "observacoes":{"type":"string","description":"Pedidos especiais (opcional)"},
+        "email":{"type":"string","description":"Email do cliente (opcional)"}
+     },"required":["nome","data","turno_id","hora_inicio","pessoas"]}},
 ]
 
 
@@ -117,6 +138,26 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
 
         if name == "lookup_contact_history":
             return await tool_fns.lookup_contact_history(user_phone, rid)
+
+        if name == "verificar_disponibilidade":
+            return await tool_fns.verificar_disponibilidade(
+                rid,
+                inputs.get("data", ""),
+                int(inputs.get("pessoas", 2)),
+            )
+
+        if name == "fazer_reserva":
+            return await tool_fns.fazer_reserva(
+                restaurant_id=rid,
+                user_phone=user_phone,
+                nome=inputs["nome"],
+                data=inputs["data"],
+                turno_id=inputs["turno_id"],
+                hora_inicio=inputs["hora_inicio"],
+                pessoas=int(inputs["pessoas"]),
+                observacoes=inputs.get("observacoes"),
+                email=inputs.get("email"),
+            )
 
         return f"Tool desconhecida: {name}"
     except Exception as e:

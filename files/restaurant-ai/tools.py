@@ -273,3 +273,106 @@ async def lookup_contact_history(user_phone: str, restaurant_id: str) -> str:
             f"para {ult['pessoas']} pessoa(s) [{ult.get('status') or 'confirmada'}]"
         )
     return " | ".join(parts) if parts else "Histórico vazio."
+
+
+# ════════════════════════════════════════════════════════════════
+# SERENA 2.0 — Agenda própria
+# ════════════════════════════════════════════════════════════════
+
+async def verificar_disponibilidade(restaurant_id: str, data: str, pessoas: int) -> str:
+    """Retorna turnos com vagas para uma data e número de pessoas."""
+    target = _resolve_date(data)
+    if target is None:
+        return f"Não entendi a data '{data}'. Use YYYY-MM-DD ou 'amanhã', 'sexta'."
+
+    try:
+        slots = await db.get_disponibilidade_semana(restaurant_id, target.isoformat(), dias=1)
+    except Exception as e:
+        print(f"[TOOL verificar_disponibilidade] erro: {e!r}")
+        return "Não consegui consultar a disponibilidade agora."
+
+    data_br = target.strftime("%d/%m/%Y")
+    DIA_BR = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
+    dia_sem = DIA_BR[target.weekday()]
+
+    if not slots:
+        return f"Não há turnos configurados para {data_br} ({dia_sem})."
+
+    disponiveis = [s for s in slots if int(s.get("posicoes_disponiveis") or 0) >= pessoas]
+
+    if not disponiveis:
+        return (
+            f"Sem vagas para {pessoas} pessoa(s) em {data_br} ({dia_sem}). "
+            f"Gostaria de verificar outra data?"
+        )
+
+    linhas = [f"Horários disponíveis para {pessoas} pessoa(s) em {data_br} ({dia_sem}):"]
+    for s in disponiveis:
+        hora = str(s["hora_inicio"])[:5]
+        nome_turno = s.get("turno_nome") or hora
+        vagas = int(s.get("posicoes_disponiveis") or 0)
+        linhas.append(f"• *{nome_turno}* às {hora} — {vagas} vaga(s) | id:{s['turno_id']}")
+    return "\n".join(linhas)
+
+
+async def fazer_reserva(
+    restaurant_id: str,
+    user_phone: str,
+    nome: str,
+    data: str,
+    turno_id: str,
+    hora_inicio: str,
+    pessoas: int,
+    observacoes: str | None = None,
+    email: str | None = None,
+) -> str:
+    """Cria reserva na agenda própria após confirmar disponibilidade."""
+    target = _resolve_date(data)
+    if target is None:
+        return f"Não entendi a data '{data}'."
+
+    try:
+        disp = await db.check_disponibilidade(
+            restaurant_id, target.isoformat(), turno_id, pessoas
+        )
+    except Exception as e:
+        print(f"[TOOL fazer_reserva] check_disponibilidade erro: {e!r}")
+        return "Não consegui verificar a disponibilidade antes de confirmar. Tente novamente."
+
+    if not disp or not disp.get("disponivel"):
+        vagas = disp.get("posicoes_livres", 0) if disp else 0
+        return f"Sem vagas suficientes neste horário ({vagas} vaga(s) restante(s)). Escolha outro turno."
+
+    hora_fmt = _normalize_time(hora_inicio) or hora_inicio
+
+    payload = {
+        "restaurant_id": restaurant_id,
+        "turno_id": turno_id,
+        "cliente_phone": user_phone,
+        "cliente_nome": nome,
+        "cliente_email": email,
+        "data": target.isoformat(),
+        "hora_inicio": hora_fmt,
+        "posicoes": pessoas,
+        "canal": "whatsapp",
+        "observacoes": observacoes,
+        "pagamento_status": "nao_requerido",
+    }
+
+    try:
+        reserva = await db.criar_reserva(payload)
+    except Exception as e:
+        print(f"[TOOL fazer_reserva] criar_reserva erro: {e!r}")
+        return "Erro ao registrar a reserva. Tente novamente em instantes."
+
+    rid_short = str(reserva["id"])[:8].upper()
+    data_br = target.strftime("%d/%m/%Y")
+
+    return (
+        f"✅ Reserva confirmada!\n"
+        f"• Código: *{rid_short}*\n"
+        f"• Nome: {nome}\n"
+        f"• Data: {data_br} às {hora_fmt}\n"
+        f"• Pessoas: {pessoas}\n"
+        f"Guarde o código para consultar ou cancelar."
+    )
