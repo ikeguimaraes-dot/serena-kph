@@ -1278,14 +1278,25 @@ async def get_turnos(restaurant_id: str, dia_semana: int) -> list[dict]:
 
 
 async def check_disponibilidade(restaurant_id: str, data: str, turno_id: str, posicoes: int) -> dict:
+    from datetime import date as _date
+    try:
+        data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
+    except ValueError:
+        data_obj = _date.today()
     async with pool().acquire() as c:
         row = await c.fetchrow("""
             SELECT verificar_disponibilidade($1, $2::DATE, $3::UUID, $4) as resultado
-        """, restaurant_id, data, turno_id, posicoes)
+        """, restaurant_id, data_obj, turno_id, posicoes)
     return row["resultado"]
 
 
 async def criar_reserva(data: dict) -> dict:
+    from datetime import date as _date
+    raw_data = data["data"]
+    try:
+        data_obj = _date.fromisoformat(raw_data) if isinstance(raw_data, str) else raw_data
+    except ValueError:
+        data_obj = _date.today()
     async with pool().acquire() as c:
         row = await c.fetchrow("""
             INSERT INTO reservas (
@@ -1298,7 +1309,7 @@ async def criar_reserva(data: dict) -> dict:
         """,
         data["restaurant_id"], data.get("turno_id"), data.get("evento_id"),
         data["cliente_phone"], data["cliente_nome"], data.get("cliente_email"),
-        data["data"], data["hora_inicio"], data["posicoes"],
+        data_obj, data["hora_inicio"], data["posicoes"],
         data.get("canal", "whatsapp"), data.get("observacoes"),
         data.get("pagamento_status", "nao_requerido"), data.get("pagamento_valor"))
     return dict(row)
