@@ -329,8 +329,12 @@ async def assumir_conversa(data: dict):
 @app.get("/api/agenda/{restaurant_id}/disponibilidade")
 async def disponibilidade(restaurant_id: str, data: str, dias: int = 7):
     """Retorna disponibilidade dos próximos N dias."""
-    slots = await db.get_disponibilidade_semana(restaurant_id, data, dias)
-    return {"slots": slots}
+    try:
+        slots = await db.get_disponibilidade_semana(restaurant_id, data, dias)
+        return {"slots": slots, "_build": "75f8978"}
+    except BaseException as e:
+        import traceback
+        return {"error": type(e).__name__, "msg": str(e), "trace": traceback.format_exc()}
 
 @app.post("/api/agenda/{restaurant_id}/reservas", status_code=201)
 async def nova_reserva(restaurant_id: str, body: dict):
