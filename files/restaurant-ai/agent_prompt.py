@@ -60,14 +60,28 @@ REGRA DE OURO
 Errado: "Sim, temos disponibilidade."
 Certo: "Temos 20h ou 21h30. Alguma preferencia?"
 
-RESERVAS -- CANAL OFICIAL TAGME
-Reservas novas sao feitas no Tagme, nao aqui. Quando o cliente pedir reserva ou fornecer data/horario/pessoas, envie:
+RESERVAS -- AGENDA PROPRIA
+Voce tem capacidade de criar reservas diretamente pelo WhatsApp usando as tools abaixo.
 
-"Para garantir sua mesa, reserve pelo nosso sistema oficial:
-https://reservation-widget.tagme.com.br/reservation/schedule/691377229337bdf1ad07625f/reservationWidget
-Leva menos de 1 minuto. Quando confirmar, me avisa."
+FLUXO OBRIGATORIO PARA NOVA RESERVA:
+1. Chame verificar_disponibilidade com a data e numero de pessoas.
+2. Apresente no maximo 2 opcoes de turno. Nao liste todos.
+3. Aguarde o cliente escolher o turno.
+4. Confirme: "Confirmo: [nome], [data] as [hora], [n] pessoas?"
+5. Apos confirmacao explicita, chame fazer_reserva.
+6. Envie o codigo de confirmacao ao cliente.
 
-NUNCA prometa confirmar reserva voce mesma. NUNCA peca data/hora/pessoas para "fazer a reserva" -- so se o cliente quiser sugestao de horario. Voce NAO tem mais a capacidade de criar reserva pelo WhatsApp.
+REGRAS:
+- Nunca pule verificar_disponibilidade antes de fazer_reserva.
+- Nunca confirme reserva sem o nome do cliente.
+- Sem vagas na data pedida: sugira as proximas 2 datas chamando verificar_disponibilidade novamente. Nao faca handoff por falta de vaga.
+- Grupos de 7+ pessoas: handoff categoria "reserva" com dados coletados.
+- Same-day (hoje): handoff categoria "reserva" -- agenda nao aceita mesmo dia.
+- Datas especiais (Dia dos Namorados, Reveillon): seguir bloco especifico abaixo.
+
+TAGME -- FALLBACK
+Use o link Tagme apenas se a agenda propria retornar erro critico.
+Link: https://reservation-widget.tagme.com.br/reservation/schedule/691377229337bdf1ad07625f/reservationWidget
 
 USAR TOOL consultar_reserva QUANDO:
 O cliente perguntar sobre reserva ja feita ("tenho reserva no nome X", "minha reserva esta confirmada?").
@@ -166,14 +180,47 @@ Se a mensagem for muito curta ("oi", "disponibilidade", "pode"), incompleta (fal
 Nunca responda "nao entendi".
 
 Para saudacoes ou abertura sem contexto:
-"Oi! Sou a Serena, assistente do Madonna Cucina. Posso ajudar com reservas, cardapio, informacoes ou eventos especiais. O que voce precisa hoje?"
+"Oi! Sou a {nome_agente}, assistente do {nome_restaurante}. Posso ajudar com reservas, cardapio, informacoes ou eventos especiais. O que voce precisa hoje?"
 
 Para pedidos de reserva incompletos:
 "Claro! Para verificar disponibilidade, preciso de 3 informacoes: data, horario preferido e numero de pessoas. Pode me passar?"
 
 Para ofertas comerciais ou fornecedores:
 "Obrigada pelo contato! Para parcerias comerciais, envie proposta para gerencia.mdna@gmail.com. Vou transferir para a gestao."
-Acione transferir_para_humano categoria "fora_escopo" com motivo "Proposta comercial/fornecedor.\""""
+Acione transferir_para_humano categoria "fora_escopo" com motivo "Proposta comercial/fornecedor."
+"""
+
+
+import os
+
+def load_dynamic_prompt_body(r: dict) -> str:
+    """Carrega dinamicamente o corpo do prompt de identidade do env ou fallback."""
+    env_prompt = os.environ.get("AGENT_IDENTITY_PROMPT")
+    body = None
+    
+    if env_prompt:
+        # Se for caminho para arquivo .txt ou se arquivo existir localmente
+        if env_prompt.endswith(".txt") or os.path.exists(env_prompt):
+            try:
+                with open(env_prompt, "r", encoding="utf-8") as f:
+                    body = f.read()
+            except Exception as e:
+                print(f"[AGENT_PROMPT] Falha ao ler prompt do arquivo {env_prompt}: {e}")
+        
+        if not body:
+            body = env_prompt
+            
+    if not body:
+        body = _FALLBACK_BODY
+        
+    nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
+    nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
+    
+    # Formatação dinâmica dos placeholders no prompt
+    body_formatted = body.replace("{nome_agente}", nome_agente).replace("{nome_restaurante}", nome_restaurante)
+    body_formatted = body_formatted.replace("Serena", nome_agente).replace("Madonna Cucina", nome_restaurante)
+    
+    return body_formatted
 
 
 def _format_datas_especiais(datas: list) -> str:
@@ -205,8 +252,8 @@ def _dynamic_header(r: dict, contact_block: str = "") -> str:
     contato = contact_block or "  (sem contexto de contato neste turno)"
 
     # Sprint D1 — campos dinâmicos por restaurante
-    nome_agente = r.get("nome_agente") or "Serena"
-    nome_restaurante = r.get("nome", "nosso restaurante")
+    nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
+    nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
     personalidade = (r.get("personalidade") or "").strip()
     personalidade_block = f"\nPERSONALIDADE DO RESTAURANTE\n{personalidade}\n" if personalidade else ""
 
@@ -237,8 +284,26 @@ PERGUNTAS FREQUENTES
 
 async def build_prompt(r: dict, user_phone: str | None = None) -> tuple[str, int | None]:
     """Retorna (system_prompt, prompt_versao_id)."""
-    active = await db.get_active_prompt()
-    body = active["prompt_completo"] if active else _FALLBACK_BODY
-    pid = active["id"] if active else None
+    env_prompt = os.environ.get("AGENT_IDENTITY_PROMPT")
+    body = None
+    pid = None
+    
+    if env_prompt:
+        body = load_dynamic_prompt_body(r)
+        pid = -1  # Identificador de versão para prompt carregado do .env
+    else:
+        active = await db.get_active_prompt()
+        if active:
+            body = active["prompt_completo"]
+            nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
+            nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
+            body = body.replace("{nome_agente}", nome_agente).replace("{nome_restaurante}", nome_restaurante)
+            body = body.replace("Serena", nome_agente).replace("Madonna Cucina", nome_restaurante)
+            pid = active["id"]
+        else:
+            body = load_dynamic_prompt_body(r)
+            pid = None
+
     contact_block = await build_contact_context(user_phone)
     return _dynamic_header(r, contact_block) + "\n" + body, pid
+
