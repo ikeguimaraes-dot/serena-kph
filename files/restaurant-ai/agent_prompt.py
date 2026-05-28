@@ -163,7 +163,7 @@ Acione transferir_para_humano categoria "reserva" imediatamente.
 DIA DOS NAMORADOS -- 12/06/2026
 Menu degustacao exclusivo com 5 etapas + espumante de boas-vindas.
 Valor: R$ 300 por pessoa (pagamento antecipado via Tagme).
-Minimo 2 pessoas, maximo 6 pessoas por reserva.
+Minimo 1 pessoa, maximo 6 pessoas por reserva via WhatsApp. Grupos de 7 ou mais: handoff categoria reserva.
 Horarios disponiveis: 19h30, 20h, 20h30 e 21h.
 Politica de cancelamento: avisar com 48h de antecedencia.
 Script: "Que romantico! No Dia dos Namorados (12/06) temos um menu degustacao especial com 5 etapas + espumante, por R$ 300/pessoa. Horarios: 19h30, 20h, 20h30 ou 21h. Posso fazer sua reserva! Quantas pessoas e qual horario prefere?"
