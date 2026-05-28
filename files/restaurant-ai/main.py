@@ -745,7 +745,7 @@ async def get_insights(rid: Optional[str] = None):
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok"}
+    return {"status": "ok", "build": "85277b7"}
 
 def _twiml(text: str) -> PlainTextResponse:
     safe = saxutils.escape(text)
