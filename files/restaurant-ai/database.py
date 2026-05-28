@@ -1352,7 +1352,7 @@ async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias:
                 EXTRACT(DOW FROM d.data)::INT                                                        AS dia_semana,
                 COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0)::INT AS posicoes_ocupadas,
                 (t.capacidade_posicoes_max - COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0))::INT AS posicoes_disponiveis
-            FROM generate_series($2::date, $3::date, INTERVAL '1 day') d(data)
+            FROM generate_series($2::date::timestamp, $3::date::timestamp, INTERVAL '1 day') d(data)
             JOIN agenda_turnos t
                 ON t.restaurant_id = $1
                AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT
