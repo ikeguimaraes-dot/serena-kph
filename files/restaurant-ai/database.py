@@ -1333,24 +1333,38 @@ async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
 
 
 async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias: int = 7) -> list[dict]:
+    from datetime import date as _date, timedelta as _td
+    try:
+        start = _date.fromisoformat(data_inicio)
+    except ValueError:
+        start = _date.today()
+    end = start + _td(days=max(dias - 1, 0))
+
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT
-                t.id as turno_id,
-                t.nome as turno_nome,
-                t.hora_inicio,
-                t.hora_fim,
+                t.id::text                                                                            AS turno_id,
+                t.nome                                                                               AS turno_nome,
+                t.hora_inicio::text                                                                  AS hora_inicio,
+                t.hora_fim::text                                                                     AS hora_fim,
                 t.capacidade_posicoes_max,
-                d.data,
-                EXTRACT(DOW FROM d.data)::INT as dia_semana,
-                COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0) as posicoes_ocupadas,
-                t.capacidade_posicoes_max - COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0) as posicoes_disponiveis
-            FROM generate_series($2::DATE, $2::DATE + ($3 - 1) * INTERVAL '1 day', INTERVAL '1 day') d(data)
-            JOIN agenda_turnos t ON t.restaurant_id = $1 AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT AND t.ativo = true
-            LEFT JOIN reservas r ON r.turno_id = t.id AND r.data = d.data::DATE
-            LEFT JOIN agenda_bloqueios b ON b.restaurant_id = $1 AND b.data_inicio::DATE <= d.data::DATE AND b.data_fim::DATE >= d.data::DATE
+                d.data::date                                                                         AS data,
+                EXTRACT(DOW FROM d.data)::INT                                                        AS dia_semana,
+                COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0)::INT AS posicoes_ocupadas,
+                (t.capacidade_posicoes_max - COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('pendente','confirmada')), 0))::INT AS posicoes_disponiveis
+            FROM generate_series($2::date, $3::date, INTERVAL '1 day') d(data)
+            JOIN agenda_turnos t
+                ON t.restaurant_id = $1
+               AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT
+               AND t.ativo = true
+            LEFT JOIN reservas r
+                ON r.turno_id = t.id AND r.data = d.data::date
+            LEFT JOIN agenda_bloqueios b
+                ON b.restaurant_id = $1
+               AND b.data_inicio::date <= d.data::date
+               AND b.data_fim::date   >= d.data::date
             WHERE b.id IS NULL
             GROUP BY t.id, t.nome, t.hora_inicio, t.hora_fim, t.capacidade_posicoes_max, d.data
             ORDER BY d.data, t.hora_inicio
-        """, restaurant_id, data_inicio, dias)
+        """, restaurant_id, start.isoformat(), end.isoformat())
     return [dict(r) for r in rows]
