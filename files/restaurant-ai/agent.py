@@ -48,7 +48,7 @@ _RE_NAO_SEI = re.compile(
 
 # Taxonomia de intenções — mais específico primeiro.
 _RE_INTENCAO = [
-    ("reserva_existente", re.compile(r"\b(cancel|alterar reserva|mudar reserva|confirmar reserva|minha reserva|já reservei|já tenho reserva)", re.I)),
+    ("reserva_existente", re.compile(r"\b(cancel|alterar reserva|mudar reserva|minha reserva|já reservei|já tenho reserva|tenho reserva)", re.I)),
     ("reserva_nova",      re.compile(r"\b(reserv|mesa|lugar|assento|disponib|horario|horário|tagme|agendar|marcar mesa|quero jantar|quero almoç)", re.I)),
     ("reclamacao",        re.compile(r"\b(reclam|insatisf|nojent|estragad|horrivel|horrível|pessim|péssim|decepcion|problema|demor|frio|gelado|mal atendid)", re.I)),
     ("cardapio",          re.compile(r"\b(cardapio|cardápio|prato|menu|comida|opcao|opção|tem.*pra comer|o que vocês servem|vegeta|vegan|sem gluten|sem lactose|alergi)", re.I)),
@@ -165,13 +165,52 @@ class RestaurantAgent:
 
     async def process(self, user_phone: str, restaurant_phone: str, message: str, profile_name: str = "") -> str:
         print(f"[AGENT] process user={user_phone!r} restaurant_phone={restaurant_phone!r} profile_name={profile_name!r}")
-        restaurant = await db.get_restaurant_by_whatsapp(restaurant_phone)
+        
+        agent_name_env = os.environ.get("AGENT_NAME")
+        restaurant = None
+        
+        if agent_name_env:
+            rid = agent_name_env.lower().strip()
+            print(f"[AGENT] Usando AGENT_NAME={agent_name_env!r} (rid={rid!r}) para segregação.")
+            restaurant = await db.get_restaurant(rid)
+            
+            if not restaurant:
+                # Tenta buscar pelo número de WhatsApp
+                restaurant = await db.get_restaurant_by_whatsapp(restaurant_phone)
+                
+                # Se ainda não encontrado, cria/garante a existência do restaurante/agente de forma autocurativa
+                if not restaurant:
+                    business_context = os.environ.get("BUSINESS_CONTEXT") or f"{agent_name_env} Core"
+                    print(f"[AGENT] Restaurante/Agente {rid!r} não encontrado no banco. Criando de forma autocurativa...")
+                    await db.ensure_restaurant(rid, business_context, restaurant_phone)
+                    restaurant = await db.get_restaurant_by_whatsapp(restaurant_phone)
+                    if not restaurant:
+                        # Fallback em memória se por algum motivo a DB falhar temporariamente
+                        restaurant = {
+                            "id": rid,
+                            "nome": business_context,
+                            "whatsapp_number": restaurant_phone,
+                            "endereco": "",
+                            "descricao": business_context,
+                            "capacidade_maxima_reserva": 8,
+                            "antecedencia_minima_horas": 2,
+                            "capacidade_total": 80,
+                            "ativo": True,
+                            "horarios": {},
+                            "faq": {},
+                            "cardapio": business_context,
+                            "datas_especiais": []
+                        }
+        else:
+            restaurant = await db.get_restaurant_by_whatsapp(restaurant_phone)
+            
         if not restaurant:
-            print(f"[AGENT] Restaurante NÃO encontrado para whatsapp_number={restaurant_phone!r}")
-            return "Desculpe, não consegui identificar o restaurante. Tente novamente."
+            print(f"[AGENT] Restaurante/Agente NÃO encontrado para whatsapp_number={restaurant_phone!r}")
+            return "Desculpe, não consegui identificar o agente ou restaurante. Tente novamente."
 
         rid = restaurant["id"]
-        print(f"[AGENT] Restaurante={rid} ({restaurant['nome']})")
+        print(f"[AGENT] Restaurante/Agente={rid} ({restaurant['nome']})")
+
 
         try:
             await db.ensure_contact(user_phone, nome=profile_name)

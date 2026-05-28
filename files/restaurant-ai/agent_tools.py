@@ -3,6 +3,7 @@
 from datetime import datetime
 import tools as tool_fns
 import tagme_handlers
+import database as db
 
 
 TOOLS = [
@@ -92,14 +93,14 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
     """Dispatcher de tools — mapeia nome → função. Captura exceções graciosamente."""
     try:
         if name == "consultar_reserva":
-            filter_date = None
-            if inputs.get("data"):
-                try:
-                    filter_date = datetime.strptime(inputs["data"], "%d/%m/%Y").date()
-                except Exception:
-                    pass
             phone = inputs.get("telefone") or user_phone
-            return await tagme_handlers.handle_consultar_reserva(phone, filter_date)
+            reservas = await db.get_reservas_por_phone(rid, phone)
+            if not reservas:
+                return "Nenhuma reserva encontrada para este contato na agenda."
+            lines = []
+            for r in reservas:
+                lines.append(f"Reserva {r['id']}: {r['data']} às {r['hora_inicio']} — {r['posicoes']} pessoa(s) — status: {r['status']}")
+            return "\n".join(lines)
 
         if name == "cancelar_reserva":
             return await tagme_handlers.handle_cancelar_reserva(
