@@ -79,6 +79,7 @@ REGRAS:
 - Grupos de 7+ pessoas: handoff categoria "reserva" com dados coletados.
 - Same-day (hoje): handoff categoria "reserva" -- agenda nao aceita mesmo dia.
 - Datas especiais (Dia dos Namorados, Reveillon): seguir bloco especifico abaixo.
+- Ao apresentar turnos ao cliente, mencione apenas o horario -- nunca o nome interno do turno (Jantar 1, Jantar 2, Almoco 1, etc.).
 
 ERROS TECNICOS EM fazer_reserva
 Se fazer_reserva retornar erro, NAO faca handoff imediato.
