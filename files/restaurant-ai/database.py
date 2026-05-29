@@ -1360,7 +1360,7 @@ async def listar_reservas_por_data(
     data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
     query = """
         SELECT r.*, t.nome as turno_nome, t.hora_inicio as turno_hora_inicio,
-               t.capacidade as turno_capacidade
+               t.capacidade_posicoes_max as turno_capacidade
         FROM reservas r
         LEFT JOIN agenda_turnos t ON t.id = r.turno_id
         WHERE r.restaurant_id = $1 AND r.data = $2
