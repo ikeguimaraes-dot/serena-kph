@@ -352,6 +352,18 @@ async def disponibilidade(restaurant_id: str, data: str, dias: int = 7):
     slots = await db.get_disponibilidade_semana(restaurant_id, data, dias)
     return {"slots": slots}
 
+@app.get("/api/agenda/{restaurant_id}/reservas")
+async def listar_reservas_agenda(
+    restaurant_id: str,
+    data: str | None = None,
+    status: str | None = None,
+    limit: int = 100,
+):
+    from datetime import date
+    target = data or date.today().isoformat()
+    rows = await db.listar_reservas_por_data(restaurant_id, target, status, limit)
+    return rows
+
 @app.post("/api/agenda/{restaurant_id}/reservas", status_code=201)
 async def nova_reserva(restaurant_id: str, body: dict):
     """Cria nova reserva. Verifica disponibilidade antes."""

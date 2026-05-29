@@ -1353,6 +1353,26 @@ async def get_reservas_por_phone(restaurant_id: str, phone: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def listar_reservas_por_data(
+    restaurant_id: str, data: str, status: str | None = None, limit: int = 100
+) -> list[dict]:
+    query = """
+        SELECT r.*, t.nome as turno_nome, t.hora_inicio as turno_hora_inicio
+        FROM reservas r
+        LEFT JOIN agenda_turnos t ON t.id = r.turno_id
+        WHERE r.restaurant_id = $1 AND r.data = $2::DATE
+    """
+    params = [restaurant_id, data]
+    if status:
+        query += f" AND r.status = ${len(params)+1}"
+        params.append(status)
+    query += f" ORDER BY r.hora_inicio, r.criado_em LIMIT ${len(params)+1}"
+    params.append(limit)
+    async with pool().acquire() as c:
+        rows = await c.fetch(query, *params)
+    return [dict(r) for r in rows]
+
+
 async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
     async with pool().acquire() as c:
         result = await c.execute("""
