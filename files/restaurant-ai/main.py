@@ -388,6 +388,13 @@ async def reservas_cliente(restaurant_id: str, phone: str):
     reservas = await db.get_reservas_por_phone(restaurant_id, phone)
     return {"reservas": reservas}
 
+@app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/confirmar")
+async def confirmar(restaurant_id: str, reserva_id: str):
+    ok = await db.confirmar_reserva(reserva_id, restaurant_id)
+    if not ok:
+        raise HTTPException(404, "Reserva não encontrada ou não está pendente")
+    return {"ok": True}
+
 @app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/cancelar")
 async def cancelar(restaurant_id: str, reserva_id: str):
     ok = await db.cancelar_reserva(reserva_id, restaurant_id)

@@ -1359,7 +1359,8 @@ async def listar_reservas_por_data(
     from datetime import date as _date
     data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
     query = """
-        SELECT r.*, t.nome as turno_nome, t.hora_inicio as turno_hora_inicio
+        SELECT r.*, t.nome as turno_nome, t.hora_inicio as turno_hora_inicio,
+               t.capacidade as turno_capacidade
         FROM reservas r
         LEFT JOIN agenda_turnos t ON t.id = r.turno_id
         WHERE r.restaurant_id = $1 AND r.data = $2
@@ -1373,6 +1374,15 @@ async def listar_reservas_por_data(
     async with pool().acquire() as c:
         rows = await c.fetch(query, *params)
     return [dict(r) for r in rows]
+
+
+async def confirmar_reserva(reserva_id: str, restaurant_id: str) -> bool:
+    async with pool().acquire() as c:
+        result = await c.execute("""
+            UPDATE reservas SET status = 'confirmada'
+            WHERE id = $1 AND restaurant_id = $2 AND status = 'pendente'
+        """, reserva_id, restaurant_id)
+    return int(result.split()[-1]) > 0
 
 
 async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
