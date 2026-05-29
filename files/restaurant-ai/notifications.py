@@ -58,11 +58,15 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     """
     client = _client()
     if not client:
-        print(f"[MSG → {customer_phone}]: {message}")
+        print(f"[MSG → {customer_phone}] (Twilio não configurado): {message[:80]}")
         return
     sender = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
-    client.messages.create(
-        from_=f"whatsapp:{sender}",
-        to=f"whatsapp:{customer_phone}",
-        body=message,
-    )
+    try:
+        msg = client.messages.create(
+            from_=f"whatsapp:{sender}",
+            to=f"whatsapp:{customer_phone}",
+            body=message,
+        )
+        print(f"[MSG → {customer_phone}] Twilio OK sid={msg.sid}")
+    except Exception as e:
+        print(f"[MSG → {customer_phone}] Twilio FALHOU from={sender!r}: {e!r}")

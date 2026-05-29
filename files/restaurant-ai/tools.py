@@ -359,6 +359,16 @@ async def fazer_reserva(
         "pagamento_status": "nao_requerido",
     }
 
+    # Idempotência — evita reserva duplicada para mesma data/turno
+    try:
+        existentes = await db.get_reservas_por_phone(restaurant_id, user_phone)
+        for r in existentes:
+            if str(r['data']) == target.isoformat() and str(r['turno_id']) == turno_id:
+                rid_short = str(r['id'])[:8].upper()
+                return f"Você já tem reserva confirmada para esta data. Código: *{rid_short}*"
+    except Exception as e:
+        print(f"[TOOL fazer_reserva] checar_duplicata erro: {e!r}")
+
     try:
         reserva = await db.criar_reserva(payload)
     except Exception as e:

@@ -7,7 +7,7 @@ import asyncio
 import xml.sax.saxutils as saxutils
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, Form, HTTPException, Header, Depends
+from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -124,8 +124,24 @@ def require_admin(x_admin_secret: Optional[str] = Header(None)):
 
 MAX_MSG_LEN = 2000
 
+async def _process_and_reply(user_phone: str, restaurant_phone: str, message: str, profile_name: str):
+    """Processa mensagem via LLM e envia resposta via Twilio outbound.
+
+    Roda em background para não bloquear o webhook além dos 15s de timeout do Twilio.
+    None indica conversa em handoff — equipe já notificada pelo agent.process.
+    """
+    try:
+        response_text = await agent.process(user_phone, restaurant_phone, message, profile_name=profile_name)
+        if response_text is None:
+            return
+        notif.send_to_customer(restaurant_phone, user_phone, response_text)
+    except Exception as e:
+        print(f"[WEBHOOK BG] erro ao processar/enviar user={user_phone!r}: {e!r}")
+
+
 @app.post("/webhook/whatsapp")
 async def whatsapp_webhook(
+    background_tasks: BackgroundTasks,
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
     secret: Optional[str] = None,
@@ -140,23 +156,27 @@ async def whatsapp_webhook(
     print(f"[WEBHOOK] From={From!r} To={To!r} ProfileName={ProfileName!r} Body={Body!r}")
     message = Body.strip()
     if not message:
-        return _twiml("")
+        return _twiml_ack()
     if len(message) > MAX_MSG_LEN:
         print(f"[WEBHOOK] mensagem descartada: tamanho {len(message)} > {MAX_MSG_LEN}")
-        return _twiml("Mensagem muito longa. Por favor, envie uma mensagem mais curta.")
+        notif.send_to_customer(
+            To.replace("whatsapp:", "").strip(),
+            From.replace("whatsapp:", "").strip(),
+            "Mensagem muito longa. Por favor, envie uma mensagem mais curta.",
+        )
+        return _twiml_ack()
 
     user_phone       = From.replace("whatsapp:", "").strip()
     restaurant_phone = To.replace("whatsapp:", "").strip()
     print(f"[WEBHOOK] user_phone={user_phone!r} restaurant_phone={restaurant_phone!r}")
     print(f"[WEBHOOK] ProfileName='{ProfileName}' user_phone='{user_phone}'")
 
-    response_text = await agent.process(user_phone, restaurant_phone, message, profile_name=ProfileName)
-
-    # None = conversa em modo handoff, equipe já foi notificada
-    if response_text is None:
-        return _twiml("Mensagem recebida. Nosso atendente vai responder em instantes.")
-
-    return _twiml(response_text)
+    # Retorna imediatamente para evitar timeout do Twilio (15s).
+    # O processamento LLM + envio ocorrem em background via Twilio outbound.
+    background_tasks.add_task(
+        _process_and_reply, user_phone, restaurant_phone, message, ProfileName
+    )
+    return _twiml_ack()
 
 
 # ════════════════════════════════════════════════════════════════
@@ -747,6 +767,13 @@ def _twiml(text: str) -> PlainTextResponse:
     safe = saxutils.escape(text)
     return PlainTextResponse(
         f'<?xml version="1.0" encoding="UTF-8"?><Response><Message>{safe}</Message></Response>',
+        media_type="text/xml")
+
+def _twiml_ack() -> PlainTextResponse:
+    """TwiML vazio — apenas confirma recebimento ao Twilio sem enviar mensagem.
+    Usado quando a resposta ao cliente será enviada via outbound (send_to_customer)."""
+    return PlainTextResponse(
+        '<?xml version="1.0" encoding="UTF-8"?><Response/>',
         media_type="text/xml")
 
 if __name__ == "__main__":
