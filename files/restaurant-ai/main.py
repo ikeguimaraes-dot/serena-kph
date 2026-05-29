@@ -395,6 +395,13 @@ async def confirmar(restaurant_id: str, reserva_id: str):
         raise HTTPException(404, "Reserva não encontrada ou não está pendente")
     return {"ok": True}
 
+@app.get("/api/agenda/{restaurant_id}/ocupacao")
+async def ocupacao_mensal(restaurant_id: str, mes: str | None = None):
+    from datetime import date
+    mes = mes or date.today().strftime("%Y-%m")
+    return await db.get_ocupacao_mensal(restaurant_id, mes)
+
+
 @app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/cancelar")
 async def cancelar(restaurant_id: str, reserva_id: str):
     ok = await db.cancelar_reserva(reserva_id, restaurant_id)

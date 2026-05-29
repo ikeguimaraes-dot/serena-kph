@@ -1395,6 +1395,28 @@ async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
     return int(result.split()[-1]) > 0
 
 
+async def get_ocupacao_mensal(restaurant_id: str, mes: str) -> list[dict]:
+    """Retorna ocupação agregada por dia para um mês. mes = 'YYYY-MM'"""
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT
+                d.data::DATE as data,
+                COUNT(*) FILTER (WHERE r.status IN ('confirmada','pendente')) as total_reservas,
+                COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('confirmada','pendente')), 0) as total_pax,
+                COALESCE(SUM(t.capacidade_posicoes_max), 0) as capacidade_total
+            FROM generate_series(
+                date_trunc('month', $2::DATE),
+                date_trunc('month', $2::DATE) + INTERVAL '1 month' - INTERVAL '1 day',
+                INTERVAL '1 day'
+            ) d(data)
+            LEFT JOIN reservas r ON r.data = d.data::DATE AND r.restaurant_id = $1
+            LEFT JOIN agenda_turnos t ON t.id = r.turno_id
+            GROUP BY d.data
+            ORDER BY d.data
+        """, restaurant_id, f"{mes}-01")
+    return [dict(r) for r in rows]
+
+
 async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias: int = 7) -> list[dict]:
     from datetime import date as _date, timedelta as _td
     try:
