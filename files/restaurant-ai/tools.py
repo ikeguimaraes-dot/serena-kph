@@ -357,6 +357,7 @@ async def fazer_reserva(
         "canal": "whatsapp",
         "observacoes": observacoes,
         "pagamento_status": "nao_requerido",
+        "status": "confirmada",
     }
 
     # Idempotência — evita reserva duplicada para mesma data/turno

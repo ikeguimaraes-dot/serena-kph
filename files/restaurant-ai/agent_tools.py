@@ -103,9 +103,13 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
             return "\n".join(lines)
 
         if name == "cancelar_reserva":
-            return await tagme_handlers.handle_cancelar_reserva(
-                user_phone, inputs.get("reserva_id")
-            )
+            reserva_id = inputs.get("reserva_id")
+            if not reserva_id:
+                return "Por favor, informe o código da reserva para cancelar."
+            success = await db.cancelar_reserva(reserva_id, rid)
+            if success:
+                return f"Reserva *{reserva_id[:8].upper()}* cancelada com sucesso ✅."
+            return "Não encontrei essa reserva ou ela já foi cancelada."
 
         if name == "transferir_para_humano":
             return await tool_fns.transferir_para_humano(inputs["motivo"])
