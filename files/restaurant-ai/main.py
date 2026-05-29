@@ -498,6 +498,11 @@ async def search_contacts(q: str, limit: int = 50):
 async def contact_stats():
     return await db.contact_stats()
 
+@app.get("/api/contacts/funil-stats")
+async def funil_stats():
+    """KPIs do funil comercial: leads/semana, score breakdown, metas."""
+    return await db.get_funil_stats()
+
 @app.post("/api/contacts/mark-inactive")
 async def contacts_mark_inactive(threshold_days: int = 45):
     """Move para 'Inativo' contatos sem visita há N+ dias. Cron-only — exige x-admin-secret."""
@@ -638,6 +643,49 @@ async def serena_training_export(formato: str = "jsonl", limit: int = 1000):
     import json
     body = "\n".join(json.dumps(r, default=str) for r in rows)
     return PlainTextResponse(body, media_type="application/x-ndjson")
+
+
+# ── Nurture automático (Sprint 2) ─────────────────────────────
+
+@app.post("/api/serena/nurture", dependencies=[Depends(require_admin)])
+async def serena_nurture(background_tasks: BackgroundTasks, dry_run: bool = False):
+    """Roda a régua de nurture: busca leads mornos inativos há 3+ dias e envia via Twilio.
+
+    Roda diariamente via cron externo (ex: Railway Cron ou GitHub Actions).
+    dry_run=true retorna os leads sem enviar mensagens.
+    """
+    leads = await db.get_nurture_leads(days_inactive=3)
+    if dry_run:
+        return {"dry_run": True, "leads": leads, "total": len(leads)}
+
+    restaurant = await db.get_restaurant_full(os.environ.get("AGENT_NAME", "madonna_cucina"))
+    sent = []
+    errors = []
+
+    for lead in leads:
+        celular = lead["celular"]
+        nome = (lead["nome"] or "").split()[0] or "você"
+        try:
+            msg = (
+                f"Oi {nome}! Ainda pensando em visitar a gente? "
+                f"Temos novidades que podem te interessar — e adoraríamos ajudar a encontrar a data perfeita. "
+                f"Me conta quando está pensando em vir! 😊"
+            )
+            background_tasks.add_task(
+                notif.send_to_customer,
+                restaurant["whatsapp_number"],
+                celular,
+                msg,
+            )
+            # Registra nas notas do contato
+            nota = f"[Nurture automático enviado em {__import__('datetime').date.today()}]"
+            notas_atuais = lead.get("notas") or ""
+            await db.update_contact(celular, {"notas": f"{notas_atuais}\n{nota}".strip()})
+            sent.append(celular)
+        except Exception as e:
+            errors.append({"celular": celular, "error": str(e)})
+
+    return {"sent": len(sent), "errors": len(errors), "details": errors or None}
 
 
 # ── Versionamento de prompt ────────────────────────────────────
