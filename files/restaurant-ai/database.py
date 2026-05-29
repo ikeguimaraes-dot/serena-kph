@@ -1356,13 +1356,15 @@ async def get_reservas_por_phone(restaurant_id: str, phone: str) -> list[dict]:
 async def listar_reservas_por_data(
     restaurant_id: str, data: str, status: str | None = None, limit: int = 100
 ) -> list[dict]:
+    from datetime import date as _date
+    data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
     query = """
         SELECT r.*, t.nome as turno_nome, t.hora_inicio as turno_hora_inicio
         FROM reservas r
         LEFT JOIN agenda_turnos t ON t.id = r.turno_id
-        WHERE r.restaurant_id = $1 AND r.data = $2::DATE
+        WHERE r.restaurant_id = $1 AND r.data = $2
     """
-    params = [restaurant_id, data]
+    params = [restaurant_id, data_obj]
     if status:
         query += f" AND r.status = ${len(params)+1}"
         params.append(status)
