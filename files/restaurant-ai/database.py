@@ -562,6 +562,7 @@ CONTACT_UPDATABLE = {
     "tipo_aparelho", "canal_entrada", "ocasiao", "restricoes_alimentares",
     "ticket_medio", "ultima_visita", "tags", "opt_in_marketing",
     "estagio_kanban", "notas", "frequencia_visitas",
+    "lead_score", "lead_score_at",
 }
 
 KANBAN_ESTAGIOS = (
