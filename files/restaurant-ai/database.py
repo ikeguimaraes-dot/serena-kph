@@ -566,8 +566,7 @@ CONTACT_UPDATABLE = {
 }
 
 KANBAN_ESTAGIOS = (
-    "Novo Lead", "Qualificado", "Proposta Enviada",
-    "Confirmado", "Realizado", "Recorrente", "Inativo",
+    "captacao", "qualificado", "proposta", "fechado", "perdido",
 )
 
 
@@ -674,6 +673,55 @@ async def move_contact_kanban(celular: str, estagio: str) -> Optional[dict]:
             "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1 RETURNING *",
             celular, estagio)
     return dict(row) if row else None
+
+
+async def get_funil_stats() -> dict:
+    """KPIs do funil: leads da semana, score breakdown."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            SELECT
+              COUNT(*) FILTER (WHERE criado_em >= NOW() - INTERVAL '7 days') AS leads_7d,
+              COUNT(*) FILTER (WHERE lead_score = 'quente') AS quentes,
+              COUNT(*) FILTER (WHERE lead_score = 'morno')  AS mornos,
+              COUNT(*) FILTER (WHERE lead_score = 'frio')   AS frios
+            FROM contacts
+        """)
+    quentes = row["quentes"] or 0
+    mornos  = row["mornos"]  or 0
+    frios   = row["frios"]   or 0
+    total   = quentes + mornos + frios or 1
+    return {
+        "leads_7d": row["leads_7d"] or 0,
+        "quentes": quentes,
+        "mornos":  mornos,
+        "frios":   frios,
+        "pct_quentes": round(quentes * 100 / total),
+    }
+
+
+async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
+    """Leads MORNOS sem interação há N+ dias — candidatos ao nurture automático."""
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT c.celular, c.nome, c.lead_score, c.atualizado_em, c.notas,
+                   r.restaurant_id
+            FROM contacts c
+            JOIN (
+                SELECT DISTINCT user_phone, restaurant_id
+                FROM conversations
+                WHERE created_at >= NOW() - INTERVAL '90 days'
+            ) r ON r.user_phone = c.celular
+            WHERE c.lead_score = 'morno'
+              AND c.atualizado_em < NOW() - ($1 || ' days')::INTERVAL
+              AND NOT EXISTS (
+                SELECT 1 FROM reservations rv
+                WHERE rv.user_phone = c.celular
+                  AND rv.status = 'confirmada'
+              )
+            ORDER BY c.atualizado_em ASC
+            LIMIT 100
+        """, str(days_inactive))
+    return [dict(r) for r in rows]
 
 
 async def search_contacts(q: str, limit: int = 50) -> list[dict]:
