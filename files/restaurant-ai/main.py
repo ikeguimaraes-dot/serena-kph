@@ -7,7 +7,7 @@ import asyncio
 import xml.sax.saxutils as saxutils
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks
+from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks, Request
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -118,6 +118,47 @@ def require_admin(x_admin_secret: Optional[str] = Header(None)):
     return True
 
 
+# ── Twilio HMAC — valida autenticidade do webhook ─────────────
+async def validate_twilio_signature(
+    request: Request,
+    x_twilio_signature: Optional[str] = Header(None),
+):
+    """Valida X-Twilio-Signature com HMAC-SHA1.
+
+    Se TWILIO_AUTH_TOKEN não estiver configurado, loga aviso e passa
+    (compatibilidade com ambiente local / testes).
+    Retorna 403 se a assinatura for inválida.
+    """
+    from twilio.request_validator import RequestValidator
+
+    auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
+    if not auth_token or auth_token.startswith("..."):
+        print("[WEBHOOK] TWILIO_AUTH_TOKEN ausente — validação HMAC ignorada (dev)")
+        return
+
+    if not x_twilio_signature:
+        print("[WEBHOOK] Rejeitado: X-Twilio-Signature ausente")
+        raise HTTPException(403, "X-Twilio-Signature ausente")
+
+    # Railway executa atrás de proxy: reconstruir URL pública com headers injetados
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme
+    host  = request.headers.get("host") or request.url.netloc
+    path  = request.url.path
+    query = request.url.query
+    url   = f"{proto}://{host}{path}" + (f"?{query}" if query else "")
+
+    # Lê os form params para a assinatura (Starlette cacheia o body após o primeiro read)
+    form   = await request.form()
+    params = dict(form.multi_items())
+
+    validator = RequestValidator(auth_token)
+    if not validator.validate(url, params, x_twilio_signature):
+        print(f"[WEBHOOK] HMAC inválido — url={url!r} sig={x_twilio_signature!r}")
+        raise HTTPException(403, "Assinatura Twilio inválida")
+
+    print(f"[WEBHOOK] HMAC válido — url={url!r}")
+
+
 # ════════════════════════════════════════════════════════════════
 # WHATSAPP WEBHOOK
 # ════════════════════════════════════════════════════════════════
@@ -139,19 +180,12 @@ async def _process_and_reply(user_phone: str, restaurant_phone: str, message: st
         print(f"[WEBHOOK BG] erro ao processar/enviar user={user_phone!r}: {e!r}")
 
 
-@app.post("/webhook/whatsapp")
+@app.post("/webhook/whatsapp", dependencies=[Depends(validate_twilio_signature)])
 async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
-    secret: Optional[str] = None,
-    x_webhook_secret: Optional[str] = Header(None),
 ):
-    expected_secret = os.environ.get("WEBHOOK_SECRET")
-    if expected_secret:
-        if secret != expected_secret and x_webhook_secret != expected_secret:
-            print(f"[WEBHOOK] Acesso negado: WEBHOOK_SECRET incorreto")
-            raise HTTPException(403, "Acesso negado: webhook secret inválido")
 
     print(f"[WEBHOOK] From={From!r} To={To!r} ProfileName={ProfileName!r} Body={Body!r}")
     message = Body.strip()
