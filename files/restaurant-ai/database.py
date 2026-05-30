@@ -492,8 +492,8 @@ async def create_team_member(rid: str, data: dict) -> dict:
 # ── Relatórios ────────────────────────────────────────────────
 
 async def report_overview(rid: str) -> dict:
-    today = datetime.now().strftime("%d/%m/%Y")
-    month_start = datetime.now().replace(day=1).strftime("%d/%m/%Y")
+    today = datetime.now().strftime("%Y-%m-%d")
+    month_start = datetime.now().replace(day=1).strftime("%Y-%m-%d")
 
     async with pool().acquire() as c:
         hoje = await c.fetchval(

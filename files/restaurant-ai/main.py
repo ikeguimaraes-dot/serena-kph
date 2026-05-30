@@ -503,7 +503,7 @@ async def funil_stats():
     """KPIs do funil comercial: leads/semana, score breakdown, metas."""
     return await db.get_funil_stats()
 
-@app.post("/api/contacts/mark-inactive")
+@app.post("/api/contacts/mark-inactive", dependencies=[Depends(require_admin)])
 async def contacts_mark_inactive(threshold_days: int = 45):
     """Move para 'Inativo' contatos sem visita há N+ dias. Cron-only — exige x-admin-secret."""
     affected = await db.mark_inactive_contacts(threshold_days)
@@ -632,7 +632,7 @@ async def serena_recent(limit: int = 100, only_handoffs: bool = False):
     rid = agent_id.lower().strip() if agent_id else None
     return await db.serena_recent(limit=limit, only_handoffs=only_handoffs, restaurant_id=rid)
 
-@app.get("/api/serena/training-export")
+@app.get("/api/serena/training-export", dependencies=[Depends(require_admin)])
 async def serena_training_export(formato: str = "jsonl", limit: int = 1000):
     agent_id = os.environ.get("AGENT_NAME")
     rid = agent_id.lower().strip() if agent_id else None
@@ -801,7 +801,7 @@ async def seed_prompt_v1():
 
 # ── Weekly report (gera análise via Claude) ───────────────────
 
-@app.post("/api/serena/weekly-report")
+@app.post("/api/serena/weekly-report", dependencies=[Depends(require_admin)])
 async def generate_weekly_report(dias: int = 7):
     """Gera análise do período via Claude e persiste em serena_weekly_reports.
 
