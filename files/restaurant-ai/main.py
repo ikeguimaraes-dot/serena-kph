@@ -887,6 +887,69 @@ async def get_os(restaurant_id: str, os_id: str):
 async def atualizar_os(restaurant_id: str, os_id: str, data: dict):
     return await db.atualizar_os(os_id, restaurant_id, data)
 
+@app.post("/api/os/{restaurant_id}/{os_id}/checkout", dependencies=[Depends(require_admin)])
+async def criar_checkout_os(restaurant_id: str, os_id: str):
+    import stripe
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+    if not stripe.api_key:
+        raise HTTPException(status_code=503, detail="Stripe não configurado")
+
+    os_data = await db.get_os(os_id, restaurant_id)
+    if not os_data:
+        raise HTTPException(status_code=404, detail="OS não encontrada")
+
+    session = stripe.checkout.Session.create(
+        payment_method_types=["card"],
+        line_items=[{
+            "price_data": {
+                "currency": "brl",
+                "product_data": {
+                    "name": f"Entrada — {os_data['tipo_evento']}",
+                    "description": f"{os_data['pessoas']} pessoas · {os_data['data']}",
+                },
+                "unit_amount": int(float(os_data["valor_entrada"]) * 100),
+            },
+            "quantity": 1,
+        }],
+        mode="payment",
+        success_url="https://madonna-painel.vercel.app/os?payment=success",
+        cancel_url="https://madonna-painel.vercel.app/os?payment=cancelled",
+        metadata={"os_id": os_id, "restaurant_id": restaurant_id},
+    )
+
+    await db.atualizar_os(os_id, restaurant_id, {
+        "stripe_checkout_session_id": session.id
+    })
+
+    return {"checkout_url": session.url, "session_id": session.id}
+
+
+@app.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    import stripe
+    stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+    webhook_secret = os.environ.get("STRIPE_WEBHOOK_SECRET")
+
+    payload = await request.body()
+    sig_header = request.headers.get("stripe-signature")
+
+    try:
+        event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Webhook inválido")
+
+    if event["type"] == "checkout.session.completed":
+        session = event["data"]["object"]
+        os_id = session["metadata"].get("os_id")
+        rid = session["metadata"].get("restaurant_id")
+        if os_id and rid:
+            await db.atualizar_os(os_id, rid, {
+                "status": "entrada_paga",
+                "stripe_payment_intent_id": session.get("payment_intent"),
+            })
+
+    return {"ok": True}
+
 
 # ════════════════════════════════════════════════════════════════
 # UTILITÁRIOS
