@@ -399,8 +399,11 @@ async def listar_reservas_agenda(
     return rows
 
 @app.post("/api/agenda/{restaurant_id}/reservas", status_code=201)
-async def nova_reserva(restaurant_id: str, body: dict):
+async def nova_reserva(restaurant_id: str, body: dict = Body(...)):
     """Cria nova reserva. Verifica disponibilidade antes."""
+    for campo in ("data", "turno_id", "posicoes"):
+        if campo not in body:
+            raise HTTPException(status_code=422, detail=f"Campo obrigatório ausente: {campo}")
     body["restaurant_id"] = restaurant_id
     disponivel = await db.check_disponibilidade(
         restaurant_id, body["data"], body["turno_id"], body["posicoes"]
@@ -885,7 +888,10 @@ async def get_os(restaurant_id: str, os_id: str):
 
 @app.patch("/api/os/{restaurant_id}/{os_id}", dependencies=[Depends(require_admin)])
 async def atualizar_os(restaurant_id: str, os_id: str, data: dict = Body(...)):
-    return await db.atualizar_os(os_id, restaurant_id, data)
+    result = await db.atualizar_os(os_id, restaurant_id, data)
+    if not result:
+        raise HTTPException(status_code=404, detail="OS não encontrada")
+    return result
 
 @app.post("/api/os/{restaurant_id}/{os_id}/checkout", dependencies=[Depends(require_admin)])
 async def criar_checkout_os(restaurant_id: str, os_id: str):
@@ -898,23 +904,31 @@ async def criar_checkout_os(restaurant_id: str, os_id: str):
     if not os_data:
         raise HTTPException(status_code=404, detail="OS não encontrada")
 
-    session = stripe.checkout.Session.create(
-        payment_method_types=["card"],
-        line_items=[{
-            "price_data": {
-                "currency": "brl",
-                "product_data": {
-                    "name": f"Entrada — {os_data['tipo_evento']}",
-                    "description": f"{os_data['pessoas']} pessoas · {os_data['data']}",
+    if not os_data.get("valor_entrada"):
+        raise HTTPException(status_code=422, detail="valor_entrada obrigatório para gerar checkout")
+
+    painel_url = os.environ.get("PAINEL_URL", "https://madonna-painel.vercel.app")
+    import asyncio
+    session = await asyncio.get_event_loop().run_in_executor(
+        None,
+        lambda: stripe.checkout.Session.create(
+            payment_method_types=["card"],
+            line_items=[{
+                "price_data": {
+                    "currency": "brl",
+                    "product_data": {
+                        "name": f"Entrada — {os_data['tipo_evento']}",
+                        "description": f"{os_data['pessoas']} pessoas · {os_data['data']}",
+                    },
+                    "unit_amount": int(float(os_data["valor_entrada"]) * 100),
                 },
-                "unit_amount": int(float(os_data["valor_entrada"]) * 100),
-            },
-            "quantity": 1,
-        }],
-        mode="payment",
-        success_url="https://madonna-painel.vercel.app/os?payment=success",
-        cancel_url="https://madonna-painel.vercel.app/os?payment=cancelled",
-        metadata={"os_id": os_id, "restaurant_id": restaurant_id},
+                "quantity": 1,
+            }],
+            mode="payment",
+            success_url=f"{painel_url}/os?payment=success",
+            cancel_url=f"{painel_url}/os?payment=cancelled",
+            metadata={"os_id": os_id, "restaurant_id": restaurant_id},
+        )
     )
 
     await db.atualizar_os(os_id, restaurant_id, {
@@ -935,6 +949,8 @@ async def stripe_webhook(request: Request):
 
     try:
         event = stripe.Webhook.construct_event(payload, sig_header, webhook_secret)
+    except stripe.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Assinatura do webhook inválida")
     except Exception:
         raise HTTPException(status_code=400, detail="Webhook inválido")
 

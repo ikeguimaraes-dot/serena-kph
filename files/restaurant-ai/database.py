@@ -386,8 +386,9 @@ async def get_reservations(rid: str, data: Optional[str]=None,
     conditions = ["restaurant_id=$1"]
     params: list = [rid]
     if data:
+        from datetime import date as _date
         conditions.append(f"data=${len(params)+1}")
-        params.append(data)
+        params.append(_date.fromisoformat(data) if isinstance(data, str) else data)
     if status:
         conditions.append(f"status=${len(params)+1}")
         params.append(status)
@@ -398,6 +399,8 @@ async def get_reservations(rid: str, data: Optional[str]=None,
     return [dict(r) for r in rows]
 
 async def update_reservation(res_id: str, data: dict) -> bool:
+    if not data:
+        return True
     fields = [f"{k}=${i+2}" for i,k in enumerate(data.keys())]
     async with pool().acquire() as c:
         r = await c.execute(
