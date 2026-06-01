@@ -7,7 +7,7 @@ import asyncio
 import xml.sax.saxutils as saxutils
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks, Request
+from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks, Request, Body
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -872,7 +872,7 @@ async def listar_os(restaurant_id: str, status: str | None = None):
     return await db.listar_os(restaurant_id, status)
 
 @app.post("/api/os/{restaurant_id}", dependencies=[Depends(require_admin)])
-async def criar_os(restaurant_id: str, data: dict):
+async def criar_os(restaurant_id: str, data: dict = Body(...)):
     data["restaurant_id"] = restaurant_id
     return await db.criar_os(data)
 
@@ -884,7 +884,7 @@ async def get_os(restaurant_id: str, os_id: str):
     return os
 
 @app.patch("/api/os/{restaurant_id}/{os_id}", dependencies=[Depends(require_admin)])
-async def atualizar_os(restaurant_id: str, os_id: str, data: dict):
+async def atualizar_os(restaurant_id: str, os_id: str, data: dict = Body(...)):
     return await db.atualizar_os(os_id, restaurant_id, data)
 
 @app.post("/api/os/{restaurant_id}/{os_id}/checkout", dependencies=[Depends(require_admin)])
