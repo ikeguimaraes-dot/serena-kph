@@ -956,12 +956,14 @@ async def stripe_webhook(request: Request):
 
     if event["type"] == "checkout.session.completed":
         session = event["data"]["object"]
-        os_id = session["metadata"].get("os_id")
-        rid = session["metadata"].get("restaurant_id")
+        metadata = session.metadata or {}          # attribute access → plain dict in SDK v7
+        os_id = metadata.get("os_id")
+        rid = metadata.get("restaurant_id")
+        payment_intent = session.payment_intent    # attribute access para consistência
         if os_id and rid:
             await db.atualizar_os(os_id, rid, {
                 "status": "entrada_paga",
-                "stripe_payment_intent_id": session.get("payment_intent"),
+                "stripe_payment_intent_id": payment_intent,
             })
 
     return {"ok": True}
