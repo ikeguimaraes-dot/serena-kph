@@ -1502,3 +1502,60 @@ async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias:
             ORDER BY d.data, t.hora_inicio
         """, restaurant_id, start, end)
     return [dict(r) for r in rows]
+
+
+# ── Ordens de Serviço ─────────────────────────────────────────
+
+async def listar_os(restaurant_id: str, status: str | None = None) -> list[dict]:
+    query = "SELECT * FROM ordens_servico WHERE restaurant_id = $1"
+    params = [restaurant_id]
+    if status:
+        query += " AND status = $2"
+        params.append(status)
+    query += " ORDER BY data DESC, criado_em DESC LIMIT 100"
+    async with pool().acquire() as c:
+        rows = await c.fetch(query, *params)
+    return [dict(r) for r in rows]
+
+
+async def criar_os(data: dict) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO ordens_servico (
+                restaurant_id, cliente_phone, cliente_nome,
+                tipo_evento, data, hora_inicio, pessoas,
+                valor_total, valor_entrada, status,
+                responsavel_evento, restricoes_alimentares,
+                decoracao, musico_dj, horario_montagem, observacoes
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+            RETURNING *
+        """,
+        data["restaurant_id"], data["cliente_phone"], data["cliente_nome"],
+        data["tipo_evento"], data["data"], data.get("hora_inicio", "19:00"),
+        data["pessoas"], data.get("valor_total"), data.get("valor_entrada"),
+        data.get("status", "rascunho"), data.get("responsavel_evento"),
+        data.get("restricoes_alimentares", []), data.get("decoracao"),
+        data.get("musico_dj"), data.get("horario_montagem"),
+        data.get("observacoes"))
+    return dict(row)
+
+
+async def get_os(os_id: str, restaurant_id: str) -> dict | None:
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            "SELECT * FROM ordens_servico WHERE id = $1 AND restaurant_id = $2",
+            os_id, restaurant_id)
+    return dict(row) if row else None
+
+
+async def atualizar_os(os_id: str, restaurant_id: str, data: dict) -> dict:
+    campos = {k: v for k, v in data.items()
+              if k not in ("id", "restaurant_id", "criado_em")}
+    sets = ", ".join(f"{k} = ${i+3}" for i, k in enumerate(campos))
+    values = list(campos.values())
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            f"UPDATE ordens_servico SET {sets}, atualizado_em = NOW() "
+            f"WHERE id = $1 AND restaurant_id = $2 RETURNING *",
+            os_id, restaurant_id, *values)
+    return dict(row) if row else None

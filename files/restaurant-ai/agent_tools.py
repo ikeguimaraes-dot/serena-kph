@@ -86,6 +86,21 @@ TOOLS = [
         "observacoes":{"type":"string","description":"Pedidos especiais (opcional)"},
         "email":{"type":"string","description":"Email do cliente (opcional)"}
      },"required":["nome","data","turno_id","hora_inicio","pessoas"]}},
+    {"name":"gerar_proposta","description":(
+        "Gera e envia proposta comercial para eventos especiais, "
+        "jantares corporativos ou celebrações com 4+ pessoas. "
+        "Use quando lead for quente e pedir detalhes de evento. "
+        "Cria OS automaticamente e move lead para etapa 'proposta' no CRM."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "nome":{"type":"string"},
+        "tipo_evento":{"type":"string","description":"Ex: jantar corporativo, aniversário, confraternização"},
+        "pessoas":{"type":"integer"},
+        "data":{"type":"string","description":"Data do evento (YYYY-MM-DD ou texto)"},
+        "ocasiao":{"type":"string","description":"Ocasião especial (opcional)"},
+        "valor_por_pessoa":{"type":"number","description":"Valor por pessoa em R$ (default 300)"},
+        "observacoes":{"type":"string"}
+     },"required":["nome","tipo_evento","pessoas"]}},
 ]
 
 
@@ -162,6 +177,19 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
                 pessoas=int(inputs["pessoas"]),
                 observacoes=inputs.get("observacoes"),
                 email=inputs.get("email"),
+            )
+
+        if name == "gerar_proposta":
+            return await tool_fns.gerar_proposta(
+                restaurant_id=rid,
+                user_phone=user_phone,
+                nome=inputs["nome"],
+                tipo_evento=inputs["tipo_evento"],
+                pessoas=int(inputs["pessoas"]),
+                data=inputs.get("data"),
+                ocasiao=inputs.get("ocasiao"),
+                valor_por_pessoa=float(inputs.get("valor_por_pessoa", 300.0)),
+                observacoes=inputs.get("observacoes"),
             )
 
         return f"Tool desconhecida: {name}"

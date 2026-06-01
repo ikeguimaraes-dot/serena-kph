@@ -864,6 +864,31 @@ async def get_insights(rid: Optional[str] = None):
 
 
 # ════════════════════════════════════════════════════════════════
+# ORDENS DE SERVIÇO
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/os/{restaurant_id}", dependencies=[Depends(require_admin)])
+async def listar_os(restaurant_id: str, status: str | None = None):
+    return await db.listar_os(restaurant_id, status)
+
+@app.post("/api/os/{restaurant_id}", dependencies=[Depends(require_admin)])
+async def criar_os(restaurant_id: str, data: dict):
+    data["restaurant_id"] = restaurant_id
+    return await db.criar_os(data)
+
+@app.get("/api/os/{restaurant_id}/{os_id}", dependencies=[Depends(require_admin)])
+async def get_os(restaurant_id: str, os_id: str):
+    os = await db.get_os(os_id, restaurant_id)
+    if not os:
+        raise HTTPException(status_code=404, detail="OS não encontrada")
+    return os
+
+@app.patch("/api/os/{restaurant_id}/{os_id}", dependencies=[Depends(require_admin)])
+async def atualizar_os(restaurant_id: str, os_id: str, data: dict):
+    return await db.atualizar_os(os_id, restaurant_id, data)
+
+
+# ════════════════════════════════════════════════════════════════
 # UTILITÁRIOS
 # ════════════════════════════════════════════════════════════════
 

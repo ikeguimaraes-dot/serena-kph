@@ -343,6 +343,15 @@ async def fazer_reserva(
         vagas = disp.get("posicoes_livres", 0) if disp else 0
         return f"Sem vagas suficientes neste horário ({vagas} vaga(s) restante(s)). Escolha outro turno."
 
+    cliente_email = email
+    if not cliente_email:
+        try:
+            contact = await db.get_contact(user_phone)
+            if contact and contact.get("email"):
+                cliente_email = contact.get("email")
+        except Exception as e:
+            print(f"[TOOL fazer_reserva] Falha ao recuperar email do CRM: {e!r}")
+
     hora_fmt = _normalize_time(hora_inicio) or hora_inicio
 
     payload = {
@@ -350,7 +359,7 @@ async def fazer_reserva(
         "turno_id": turno_id,
         "cliente_phone": user_phone,
         "cliente_nome": nome,
-        "cliente_email": email,
+        "cliente_email": cliente_email,
         "data": target.isoformat(),
         "hora_inicio": hora_fmt,
         "posicoes": pessoas,
@@ -379,6 +388,70 @@ async def fazer_reserva(
     rid_short = str(reserva["id"])[:8].upper()
     data_br = target.strftime("%d/%m/%Y")
 
+    # Envia email de confirmação assincronamente se houver email cadastrado
+    if cliente_email:
+        try:
+            import email_gateway
+            import asyncio
+
+            restaurant_nome = "Madonna Cucina"
+            try:
+                restaurant = await db.get_restaurant(restaurant_id)
+                if restaurant and restaurant.get("nome"):
+                    restaurant_nome = restaurant.get("nome")
+            except Exception:
+                pass
+
+            subject = f"Confirmação de Reserva · {restaurant_nome}"
+            html_content = f"""<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {{ font-family: -apple-system, Segoe UI, sans-serif; background-color: #1A1A1A; color: #F5F0E8; margin: 0; padding: 40px 20px; }}
+    .card {{ max-width: 500px; margin: 0 auto; background: #242424; border: 1px solid #383838; border-radius: 12px; padding: 32px; box-shadow: 0 12px 32px rgba(0,0,0,0.5); }}
+    .brand {{ color: #C4622D; font-size: 20px; font-weight: 700; text-align: center; margin-bottom: 24px; letter-spacing: -0.5px; }}
+    .divider {{ border-top: 1px solid #383838; margin: 24px 0; }}
+    .details {{ background: #2C2C2C; border: 1px solid #383838; border-radius: 8px; padding: 20px; margin: 20px 0; }}
+    .code {{ font-size: 28px; font-weight: 800; color: #C4622D; margin: 8px 0; letter-spacing: 1px; }}
+    .label {{ font-size: 11px; color: #8A8278; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }}
+    .value {{ font-size: 15px; font-weight: 600; color: #F5F0E8; margin-bottom: 12px; }}
+    .value:last-child {{ margin-bottom: 0; }}
+    .footer {{ font-size: 12px; color: #8A8278; text-align: center; line-height: 1.5; margin-top: 24px; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">{restaurant_nome}</div>
+    <h2 style="font-size: 22px; font-weight: 700; margin: 0 0 8px; color: #F5F0E8;">Sua mesa está confirmada.</h2>
+    <p style="font-size: 14px; color: #8A8278; margin: 0 0 24px; line-height: 1.5;">Olá, {nome}. Confirmamos a reserva solicitada em nosso canal digital. Os detalhes de sua reserva estão abaixo:</p>
+    
+    <div class="details">
+      <div class="label">Código da Reserva</div>
+      <div class="code">{rid_short}</div>
+      <div class="divider" style="margin: 16px 0;"></div>
+      <div class="label">Data</div>
+      <div class="value">{data_br}</div>
+      <div class="label">Horário</div>
+      <div class="value">{hora_fmt}</div>
+      <div class="label">Pessoas</div>
+      <div class="value">{pessoas} pax</div>
+    </div>
+    
+    <p style="font-size: 13px; color: #8A8278; line-height: 1.6; margin: 24px 0 0;">Se precisar cancelar ou consultar sua reserva, utilize o código acima através do nosso WhatsApp oficial ou fale diretamente com a nossa equipe.</p>
+    <div class="divider"></div>
+    <div class="footer">
+      <strong>{restaurant_nome}</strong><br>
+      Hospitalidade premium · Processo e consistência
+    </div>
+  </div>
+</body>
+</html>"""
+            
+            asyncio.create_task(asyncio.to_thread(email_gateway.send_email, cliente_email, subject, html_content))
+        except Exception as email_err:
+            print(f"[TOOL fazer_reserva] Falha ao disparar email de confirmação: {email_err!r}")
+
     return (
         f"✅ Reserva confirmada!\n"
         f"• Código: *{rid_short}*\n"
@@ -387,3 +460,81 @@ async def fazer_reserva(
         f"• Pessoas: {pessoas}\n"
         f"Guarde o código para consultar ou cancelar."
     )
+
+
+# ── gerar_proposta (Sprint 3) ─────────────────────────────────
+
+async def gerar_proposta(
+    restaurant_id: str,
+    user_phone: str,
+    nome: str,
+    tipo_evento: str,
+    pessoas: int,
+    data: str | None = None,
+    ocasiao: str | None = None,
+    valor_por_pessoa: float = 300.0,
+    observacoes: str | None = None,
+) -> str:
+    """Gera proposta comercial, cria OS e retorna texto para WhatsApp."""
+    from datetime import date as _date
+
+    data_br = ""
+    data_iso = None
+    if data:
+        target = _resolve_date(data)
+        if target:
+            data_br = target.strftime("%d/%m/%Y")
+            data_iso = target.isoformat()
+
+    valor_total = valor_por_pessoa * pessoas
+    valor_entrada = valor_total * 0.5
+
+    # Cria OS no banco
+    try:
+        os_data = {
+            "restaurant_id": restaurant_id,
+            "cliente_phone": user_phone,
+            "cliente_nome": nome,
+            "tipo_evento": tipo_evento,
+            "data": data_iso or _date.today().isoformat(),
+            "hora_inicio": "19:00",
+            "pessoas": pessoas,
+            "valor_total": valor_total,
+            "valor_entrada": valor_entrada,
+            "status": "proposta_enviada",
+            "observacoes": observacoes,
+        }
+        await db.criar_os(os_data)
+    except Exception as e:
+        print(f"[TOOL gerar_proposta] erro ao criar OS: {e!r}")
+
+    # Salva no CRM
+    try:
+        await db.upsert_contact({
+            "celular": user_phone,
+            "notas": f"Proposta enviada: {tipo_evento}, {pessoas} pax, {data_br}, R${valor_total:.0f}",
+            "estagio_kanban": "proposta",
+        })
+    except Exception as e:
+        print(f"[TOOL gerar_proposta] erro ao atualizar CRM: {e!r}")
+
+    ocasiao_linha = f"🎉 Ocasião: {ocasiao}\n" if ocasiao else ""
+    data_linha = f"📅 Data: {data_br}\n" if data_br else ""
+
+    proposta = (
+        f"🍽️ *Proposta Madonna Cucina*\n\n"
+        f"Olá, {nome}! Com base no que conversamos:\n\n"
+        f"{data_linha}"
+        f"👥 Pessoas: {pessoas}\n"
+        f"{ocasiao_linha}\n"
+        f"*O que incluímos:*\n"
+        f"• Menu degustação exclusivo\n"
+        f"• Mise en place especial\n"
+        f"• Atendimento dedicado\n"
+        f"• Harmonização disponível (opcional)\n\n"
+        f"💰 *Investimento:* R$ {valor_por_pessoa:.0f}/pessoa\n"
+        f"💳 *Total:* R$ {valor_total:.0f}\n"
+        f"📋 *Condições:* 50% entrada (R$ {valor_entrada:.0f}) + 50% no dia\n\n"
+        f"Proposta válida por 48h. Posso garantir sua data agora?"
+    )
+    return proposta
