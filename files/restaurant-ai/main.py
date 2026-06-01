@@ -806,7 +806,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
                 f"Esperamos que a experiência tenha superado as expectativas.\n\n"
                 f"Qualquer coisa que precisar, estamos por aqui. Até a próxima! 🥂"
             )
-            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            notif.send_to_customer(restaurant_phone, telefone, msg)
             await db.marcar_regua_enviada(os_id, "d1")
             enviados.append({"os_id": os_id, "etapa": "d1"})
 
@@ -822,7 +822,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
                 f"De *1 a 10*, qual nota você dá para a experiência?\n\n"
                 f"_(Basta responder com o número)_"
             )
-            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            notif.send_to_customer(restaurant_phone, telefone, msg)
             await db.marcar_regua_enviada(os_id, "d3")
             enviados.append({"os_id": os_id, "etapa": "d3"})
 
@@ -838,7 +838,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
                 f"Se quiser compartilhar fotos ou tiver algum feedback adicional, "
                 f"adoraríamos receber. Guarde nossa agenda para o próximo momento especial 🥂"
             )
-            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            notif.send_to_customer(restaurant_phone, telefone, msg)
             await db.marcar_regua_enviada(os_id, "d7")
             enviados.append({"os_id": os_id, "etapa": "d7"})
 
@@ -855,7 +855,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
                 f"Aniversário, confraternização, jantar especial?\n\n"
                 f"Será um prazer criar uma experiência única para você novamente. 🌟"
             )
-            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            notif.send_to_customer(restaurant_phone, telefone, msg)
             await db.marcar_regua_enviada(os_id, "d30")
             enviados.append({"os_id": os_id, "etapa": "d30"})
 
