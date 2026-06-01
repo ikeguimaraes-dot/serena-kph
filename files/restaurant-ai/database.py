@@ -1596,21 +1596,26 @@ async def get_os_para_regua(restaurant_id: str) -> list[dict]:
     """Retorna OS realizadas que precisam de alguma etapa da régua."""
     query = """
         SELECT
-            id, contact_id, titulo, valor_total,
-            telefone, contact_nome,
+            id,
+            restaurant_id,
+            cliente_phone   AS telefone,
+            cliente_nome    AS contact_nome,
+            tipo_evento     AS titulo,
+            valor_total,
             evento_realizado_em,
             regua_d1_enviado_em,
             regua_d3_enviado_em,
             regua_d7_enviado_em,
             regua_d30_enviado_em,
             nps_score
-        FROM vw_os_regua
+        FROM ordens_servico
         WHERE restaurant_id = $1
+          AND status = 'realizado'
           AND evento_realizado_em IS NOT NULL
     """
     async with pool().acquire() as c:
         rows = await c.fetch(query, restaurant_id)
-    return [dict(r) for r in rows]
+        return [dict(r) for r in rows]
 
 
 async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
@@ -1632,7 +1637,7 @@ async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
 
 
 async def registrar_nps(os_id: str, nota: int) -> None:
-    """Salva nota NPS recebida via WhatsApp e recalcula LTV do contato."""
+    """Salva nota NPS recebida via WhatsApp."""
     async with pool().acquire() as c:
         await c.execute(
             """UPDATE ordens_servico
@@ -1640,21 +1645,25 @@ async def registrar_nps(os_id: str, nota: int) -> None:
                WHERE id = $2""",
             nota, os_id
         )
-        # Atualiza LTV do contato
+        # Atualiza LTV do contato via cliente_phone
         await c.execute(
-            """UPDATE contacts c
+            """UPDATE contacts
                SET ltv_total = (
                    SELECT COALESCE(SUM(valor_total), 0)
                    FROM ordens_servico
-                   WHERE contact_id = c.id AND status = 'realizado'
+                   WHERE cliente_phone = (
+                       SELECT cliente_phone FROM ordens_servico WHERE id = $1
+                   ) AND status = 'realizado'
                ),
                total_eventos = (
                    SELECT COUNT(*)
                    FROM ordens_servico
-                   WHERE contact_id = c.id AND status = 'realizado'
+                   WHERE cliente_phone = (
+                       SELECT cliente_phone FROM ordens_servico WHERE id = $1
+                   ) AND status = 'realizado'
                )
-               WHERE c.id = (
-                   SELECT contact_id FROM ordens_servico WHERE id = $1
+               WHERE telefone = (
+                   SELECT cliente_phone FROM ordens_servico WHERE id = $1
                )""",
             os_id
         )
