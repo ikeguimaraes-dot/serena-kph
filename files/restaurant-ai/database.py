@@ -1519,6 +1519,32 @@ async def listar_os(restaurant_id: str, status: str | None = None) -> list[dict]
 
 
 async def criar_os(data: dict) -> dict:
+    from datetime import date as _date, time as _time
+
+    # Converte strings para tipos Python que asyncpg aceita
+    raw_data = data["data"]
+    if isinstance(raw_data, str):
+        try:
+            data_obj = _date.fromisoformat(raw_data)
+        except ValueError:
+            data_obj = _date.today()
+    else:
+        data_obj = raw_data
+
+    def _parse_time(val):
+        if val is None:
+            return None
+        if isinstance(val, str):
+            try:
+                parts = [int(x) for x in val.split(":")]
+                return _time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+            except Exception:
+                return None
+        return val
+
+    hora_obj = _parse_time(data.get("hora_inicio", "19:00"))
+    montagem_obj = _parse_time(data.get("horario_montagem"))
+
     async with pool().acquire() as c:
         row = await c.fetchrow("""
             INSERT INTO ordens_servico (
@@ -1531,11 +1557,11 @@ async def criar_os(data: dict) -> dict:
             RETURNING *
         """,
         data["restaurant_id"], data["cliente_phone"], data["cliente_nome"],
-        data["tipo_evento"], data["data"], data.get("hora_inicio", "19:00"),
+        data["tipo_evento"], data_obj, hora_obj,
         data["pessoas"], data.get("valor_total"), data.get("valor_entrada"),
         data.get("status", "rascunho"), data.get("responsavel_evento"),
         data.get("restricoes_alimentares", []), data.get("decoracao"),
-        data.get("musico_dj"), data.get("horario_montagem"),
+        data.get("musico_dj"), montagem_obj,
         data.get("observacoes"))
     return dict(row)
 
