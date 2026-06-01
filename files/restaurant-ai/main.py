@@ -7,7 +7,7 @@ import asyncio
 import xml.sax.saxutils as saxutils
 from contextlib import asynccontextmanager
 from typing import Optional
-from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks, Request, Body
+from fastapi import FastAPI, Form, HTTPException, Header, Depends, BackgroundTasks, Request, Body, Query
 from fastapi.responses import PlainTextResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
@@ -165,6 +165,31 @@ async def validate_twilio_signature(
 
 MAX_MSG_LEN = 2000
 
+async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
+    """Retorna True se a mensagem era um NPS (1-10) e foi capturada."""
+    import re as _re
+    if not _re.fullmatch(r'[1-9]|10', texto.strip()):
+        return False
+    nota = int(texto.strip())
+    # Busca OS com D+3 enviado, sem NPS ainda, desse telefone
+    query = """
+        SELECT os.id FROM ordens_servico os
+        JOIN contacts c ON c.id = os.contact_id
+        WHERE c.telefone = $1
+          AND os.regua_d3_enviado_em IS NOT NULL
+          AND os.nps_score IS NULL
+        ORDER BY os.regua_d3_enviado_em DESC
+        LIMIT 1
+    """
+    from database import pool
+    async with pool().acquire() as c:
+        row = await c.fetchrow(query, telefone)
+    if row:
+        await db.registrar_nps(row["id"], nota)
+        return True
+    return False
+
+
 async def _process_and_reply(user_phone: str, restaurant_phone: str, message: str, profile_name: str):
     """Processa mensagem via LLM e envia resposta via Twilio outbound.
 
@@ -172,6 +197,18 @@ async def _process_and_reply(user_phone: str, restaurant_phone: str, message: st
     None indica conversa em handoff — equipe já notificada pelo agent.process.
     """
     try:
+        # Captura NPS antes de passar para o agente
+        if await _tentar_capturar_nps(user_phone, message):
+            nota = int(message.strip())
+            if nota >= 9:
+                resposta_nps = "Que incrível! 🌟 Obrigado pela sua avaliação — seu feedback é muito importante para nós!"
+            elif nota >= 7:
+                resposta_nps = "Obrigado pelo feedback! 😊 Continuaremos trabalhando para aprimorar cada detalhe da experiência."
+            else:
+                resposta_nps = "Obrigado por nos contar. 🙏 Vamos usar seu feedback para melhorar. Se quiser detalhar o que aconteceu, estamos ouvindo."
+            notif.send_to_customer(restaurant_phone, user_phone, resposta_nps)
+            return
+
         response_text = await agent.process(user_phone, restaurant_phone, message, profile_name=profile_name)
         if response_text is None:
             return
@@ -723,6 +760,107 @@ async def serena_nurture(background_tasks: BackgroundTasks, dry_run: bool = Fals
             errors.append({"celular": celular, "error": str(e)})
 
     return {"sent": len(sent), "errors": len(errors), "details": errors or None}
+
+
+# ─── Régua pós-evento ────────────────────────────────────────────
+
+@app.post("/api/serena/pos-evento", dependencies=[Depends(require_admin)])
+async def rodar_regua_pos_evento(
+    background_tasks: BackgroundTasks,
+    rid: str = Query("madonna_cucina"),
+):
+    background_tasks.add_task(_job_regua_pos_evento, rid)
+    return {"status": "job_iniciado", "restaurant_id": rid}
+
+
+async def _job_regua_pos_evento(restaurant_id: str):
+    from datetime import datetime, timezone, timedelta
+    agora = datetime.now(timezone.utc)
+
+    restaurant = await db.get_restaurant_full(restaurant_id)
+    restaurant_phone = restaurant["whatsapp_number"] if restaurant else None
+
+    os_list = await db.get_os_para_regua(restaurant_id)
+    enviados = []
+
+    for os_item in os_list:
+        os_id     = os_item["id"]
+        telefone  = os_item["telefone"]
+        nome      = (os_item["contact_nome"] or "você").split()[0]
+        titulo    = os_item["titulo"] or "o evento"
+        realizado = os_item["evento_realizado_em"]
+
+        if not realizado or not telefone or not restaurant_phone:
+            continue
+
+        delta = agora - realizado
+
+        # D+1 — Agradecimento (entre 20h e 30h após o evento)
+        if (
+            not os_item["regua_d1_enviado_em"]
+            and timedelta(hours=20) <= delta <= timedelta(hours=30)
+        ):
+            msg = (
+                f"Oi {nome}! 🌟\n\n"
+                f"Foi uma alegria ter você e seus convidados no *{titulo}*.\n"
+                f"Esperamos que a experiência tenha superado as expectativas.\n\n"
+                f"Qualquer coisa que precisar, estamos por aqui. Até a próxima! 🥂"
+            )
+            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            await db.marcar_regua_enviada(os_id, "d1")
+            enviados.append({"os_id": os_id, "etapa": "d1"})
+
+        # D+3 — NPS (entre 68h e 80h após o evento)
+        elif (
+            os_item["regua_d1_enviado_em"]
+            and not os_item["regua_d3_enviado_em"]
+            and timedelta(hours=68) <= delta <= timedelta(hours=80)
+        ):
+            msg = (
+                f"Oi {nome}! 😊\n\n"
+                f"Gostaríamos muito de saber como foi *{titulo}* para você.\n\n"
+                f"De *1 a 10*, qual nota você dá para a experiência?\n\n"
+                f"_(Basta responder com o número)_"
+            )
+            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            await db.marcar_regua_enviada(os_id, "d3")
+            enviados.append({"os_id": os_id, "etapa": "d3"})
+
+        # D+7 — Fotos (entre 7d e 8d após o evento)
+        elif (
+            os_item["regua_d3_enviado_em"]
+            and not os_item["regua_d7_enviado_em"]
+            and timedelta(days=7) <= delta <= timedelta(days=8)
+        ):
+            msg = (
+                f"Oi {nome}! 📸\n\n"
+                f"As memórias de *{titulo}* ficaram lindas!\n\n"
+                f"Se quiser compartilhar fotos ou tiver algum feedback adicional, "
+                f"adoraríamos receber. Guarde nossa agenda para o próximo momento especial 🥂"
+            )
+            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            await db.marcar_regua_enviada(os_id, "d7")
+            enviados.append({"os_id": os_id, "etapa": "d7"})
+
+        # D+30 — Reativação (entre 30d e 32d após o evento)
+        elif (
+            os_item["regua_d7_enviado_em"]
+            and not os_item["regua_d30_enviado_em"]
+            and timedelta(days=30) <= delta <= timedelta(days=32)
+        ):
+            msg = (
+                f"Oi {nome}! 👋\n\n"
+                f"Faz um mês desde *{titulo}* e ainda lembramos com carinho.\n\n"
+                f"Já tem algum novo momento especial no horizonte? "
+                f"Aniversário, confraternização, jantar especial?\n\n"
+                f"Será um prazer criar uma experiência única para você novamente. 🌟"
+            )
+            await notif.send_to_customer(restaurant_phone, telefone, msg)
+            await db.marcar_regua_enviada(os_id, "d30")
+            enviados.append({"os_id": os_id, "etapa": "d30"})
+
+    logger.info(f"[pos-evento] {len(enviados)} mensagens enviadas: {enviados}")
+    return enviados
 
 
 # ── Versionamento de prompt ────────────────────────────────────

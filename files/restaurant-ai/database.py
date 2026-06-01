@@ -1588,3 +1588,85 @@ async def atualizar_os(os_id: str, restaurant_id: str, data: dict) -> dict:
             f"WHERE id = $1 AND restaurant_id = $2 RETURNING *",
             os_id, restaurant_id, *values)
     return dict(row) if row else None
+
+
+# ─── Régua pós-evento ────────────────────────────────────────────
+
+async def get_os_para_regua(restaurant_id: str) -> list[dict]:
+    """Retorna OS realizadas que precisam de alguma etapa da régua."""
+    query = """
+        SELECT
+            id, contact_id, titulo, valor_total,
+            telefone, contact_nome,
+            evento_realizado_em,
+            regua_d1_enviado_em,
+            regua_d3_enviado_em,
+            regua_d7_enviado_em,
+            regua_d30_enviado_em,
+            nps_score
+        FROM vw_os_regua
+        WHERE restaurant_id = $1
+          AND evento_realizado_em IS NOT NULL
+    """
+    async with pool().acquire() as c:
+        rows = await c.fetch(query, restaurant_id)
+    return [dict(r) for r in rows]
+
+
+async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
+    """Marca timestamp de envio da etapa da régua. etapa: d1|d3|d7|d30"""
+    col_map = {
+        "d1":  "regua_d1_enviado_em",
+        "d3":  "regua_d3_enviado_em",
+        "d7":  "regua_d7_enviado_em",
+        "d30": "regua_d30_enviado_em",
+    }
+    col = col_map.get(etapa)
+    if not col:
+        raise ValueError(f"Etapa inválida: {etapa}")
+    async with pool().acquire() as c:
+        await c.execute(
+            f"UPDATE ordens_servico SET {col} = NOW() WHERE id = $1",
+            os_id
+        )
+
+
+async def registrar_nps(os_id: str, nota: int) -> None:
+    """Salva nota NPS recebida via WhatsApp e recalcula LTV do contato."""
+    async with pool().acquire() as c:
+        await c.execute(
+            """UPDATE ordens_servico
+               SET nps_score = $1, nps_respondido_em = NOW()
+               WHERE id = $2""",
+            nota, os_id
+        )
+        # Atualiza LTV do contato
+        await c.execute(
+            """UPDATE contacts c
+               SET ltv_total = (
+                   SELECT COALESCE(SUM(valor_total), 0)
+                   FROM ordens_servico
+                   WHERE contact_id = c.id AND status = 'realizado'
+               ),
+               total_eventos = (
+                   SELECT COUNT(*)
+                   FROM ordens_servico
+                   WHERE contact_id = c.id AND status = 'realizado'
+               )
+               WHERE c.id = (
+                   SELECT contact_id FROM ordens_servico WHERE id = $1
+               )""",
+            os_id
+        )
+
+
+async def marcar_os_realizada(os_id: str) -> None:
+    """Marca OS como realizada e registra timestamp — dispara régua."""
+    async with pool().acquire() as c:
+        await c.execute(
+            """UPDATE ordens_servico
+               SET status = 'realizado',
+                   evento_realizado_em = NOW()
+               WHERE id = $1""",
+            os_id
+        )
