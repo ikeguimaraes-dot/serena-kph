@@ -954,12 +954,16 @@ async def stripe_webhook(request: Request):
     except Exception:
         raise HTTPException(status_code=400, detail="Webhook inválido")
 
+    # Usar JSON bruto — StripeObject não expõe .get() em SDK v7
+    import json as _json
+    event_dict = _json.loads(payload)
+
     if event["type"] == "checkout.session.completed":
-        session = event["data"]["object"]
-        metadata = session.metadata or {}          # attribute access → plain dict in SDK v7
+        session = event_dict["data"]["object"]   # plain dict, .get() funciona normalmente
+        metadata = session.get("metadata") or {}
         os_id = metadata.get("os_id")
         rid = metadata.get("restaurant_id")
-        payment_intent = session.payment_intent    # attribute access para consistência
+        payment_intent = session.get("payment_intent")
         if os_id and rid:
             await db.atualizar_os(os_id, rid, {
                 "status": "entrada_paga",
