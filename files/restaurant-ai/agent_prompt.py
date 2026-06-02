@@ -10,8 +10,20 @@ Sprint D1: nome_agente e personalidade são campos dinâmicos por restaurante.
 """
 
 from datetime import datetime
+import pytz
 import database as db
 from agent_context import build_contact_context
+
+
+def get_saudacao() -> str:
+    tz = pytz.timezone("America/Sao_Paulo")
+    hora = datetime.now(tz).hour
+    if 5 <= hora < 12:
+        return "Bom dia"
+    elif 12 <= hora < 18:
+        return "Boa tarde"
+    else:
+        return "Boa noite"
 
 
 # ── Body fallback — usado se a DB ainda não tem v1. ───────────
@@ -290,7 +302,7 @@ def _format_datas_especiais(datas: list) -> str:
 
 def _dynamic_header(r: dict, contact_block: str = "") -> str:
     """Header dinâmico — varia por restaurante. Sprint D1: nome_agente e personalidade dinâmicos."""
-    now = datetime.now()
+    now = datetime.now(pytz.timezone("America/Sao_Paulo"))
     dias = ["Segunda","Terca","Quarta","Quinta","Sexta","Sabado","Domingo"]
     horarios = "\n".join(f"  {d}: {h}" for d,h in r.get("horarios",{}).items())
     faq = "\n".join(f"  {k}: {v}" for k,v in r.get("faq",{}).items())
@@ -305,7 +317,7 @@ def _dynamic_header(r: dict, contact_block: str = "") -> str:
 
     return f"""Voce e {nome_agente}, concierge do {nome_restaurante}, restaurante premium em Sao Paulo.
 {personalidade_block}
-DATA E HORA: {now.strftime('%d/%m/%Y %H:%M')} ({dias[now.weekday()]})
+DATA E HORA: {now.strftime('%d/%m/%Y %H:%M')} ({dias[now.weekday()]}) — saudacao correta agora: {get_saudacao()}
 
 RESTAURANTE
 Nome: {nome_restaurante} | Endereco: {r.get('endereco', '')}
