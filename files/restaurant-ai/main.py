@@ -781,7 +781,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
     restaurant_phone = restaurant["whatsapp_number"] if restaurant else None
 
     os_list = await db.get_os_para_regua(restaurant_id)
-    enviados = []
+    enviados: list = []
 
     for os_item in os_list:
         os_id     = os_item["id"]
@@ -860,7 +860,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
             enviados.append({"os_id": os_id, "etapa": "d30"})
 
     logger.info(f"[pos-evento] {len(enviados)} mensagens enviadas")
-    return enviados
+    return {"enviados": len(enviados)}
 
 
 # ── Versionamento de prompt ────────────────────────────────────
