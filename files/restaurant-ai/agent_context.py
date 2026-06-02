@@ -1,7 +1,10 @@
 """Módulo: contexto CRM do contato atual — injetado no system prompt a cada turno."""
 
 from datetime import datetime
+import pytz
 import database as db
+
+_TZ_SP = pytz.timezone("America/Sao_Paulo")
 
 
 def _format_contact_block(contact: dict | None, reservations: list) -> str:
@@ -21,7 +24,7 @@ def _format_contact_block(contact: dict | None, reservations: list) -> str:
     ultima = contact.get("ultima_visita")
     if ultima:
         try:
-            dias = (datetime.now().date() - ultima).days
+            dias = (datetime.now(_TZ_SP).date() - ultima).days
             quando = "hoje" if dias == 0 else f"há {dias} dia{'s' if dias != 1 else ''}"
             lines.append(f"  Última visita: {ultima.strftime('%d/%m/%Y')} ({quando}) · {freq} visita{'s' if freq != 1 else ''} no total")
         except Exception:
@@ -50,7 +53,7 @@ def _format_contact_block(contact: dict | None, reservations: list) -> str:
         lines.append(f"  Notas internas: {notas[:200]}")
 
     # Reserva pendente (futura, status confirmada)
-    hoje = datetime.now().date()
+    hoje = datetime.now(_TZ_SP).date()
     pendentes = []
     for rsv in reservations or []:
         if rsv.get("status") not in ("confirmada", "pendente"):

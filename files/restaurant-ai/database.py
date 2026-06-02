@@ -5,8 +5,11 @@ Cobre: conversas, reservas, restaurantes, cardápio, handoff, relatórios.
 
 import os, uuid, asyncio
 import asyncpg
+import pytz
 from typing import Optional
 from datetime import datetime, timedelta
+
+_TZ_SP = pytz.timezone("America/Sao_Paulo")
 
 _pool: Optional[asyncpg.Pool] = None
 
@@ -279,7 +282,7 @@ async def create_menu_item(rid: str, data: dict) -> dict:
     return {"id": row["id"]}
 
 async def update_menu_item(item_id: int, data: dict) -> bool:
-    data["updated_at"] = datetime.now()
+    data["updated_at"] = datetime.now(_TZ_SP)
     fields = [f"{k}=${i+2}" for i,k in enumerate(data.keys())]
     async with pool().acquire() as c:
         r = await c.execute(
@@ -495,8 +498,8 @@ async def create_team_member(rid: str, data: dict) -> dict:
 # ── Relatórios ────────────────────────────────────────────────
 
 async def report_overview(rid: str) -> dict:
-    today = datetime.now().strftime("%Y-%m-%d")
-    month_start = datetime.now().replace(day=1).strftime("%Y-%m-%d")
+    today = datetime.now(_TZ_SP).strftime("%Y-%m-%d")
+    month_start = datetime.now(_TZ_SP).replace(day=1).strftime("%Y-%m-%d")
 
     async with pool().acquire() as c:
         hoje = await c.fetchval(
@@ -1170,7 +1173,7 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
     rid_filter = "AND restaurant_id=$1" if rid else ""
     args = [rid] if rid else []
 
-    today_iso = datetime.now().strftime("%d/%m/%Y")
+    today_iso = datetime.now(_TZ_SP).strftime("%d/%m/%Y")
 
     ouro_aguardando = await p.fetch(f"""
         SELECT DISTINCT ON (h.user_phone)
@@ -1256,7 +1259,7 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
         "summary": f"Mês até agora: US$ {float(custo_mes_ate_agora):.2f}",
         "tone": "muted",
     })
-    return {"generated_at": datetime.now().isoformat(), "insights": insights, "today": today_iso}
+    return {"generated_at": datetime.now(_TZ_SP).isoformat(), "insights": insights, "today": today_iso}
 
 
 async def insert_weekly_report(start, end, total_conversas: int, payload: dict) -> int:
