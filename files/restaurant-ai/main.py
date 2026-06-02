@@ -4,6 +4,7 @@ FastAPI — WhatsApp webhook + API REST completa para o painel.
 
 import os
 import asyncio
+import json
 import xml.sax.saxutils as saxutils
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -795,18 +796,22 @@ async def _job_regua_pos_evento(restaurant_id: str):
 
         delta = agora - realizado
 
+        _twilio = notif._client()
+        _from   = f"whatsapp:{os.environ.get('TWILIO_FROM_NUMBER') or restaurant_phone}"
+        _to     = f"whatsapp:{telefone}"
+        _vars   = json.dumps({"1": nome, "2": titulo})
+
         # D+1 — Agradecimento (entre 20h e 30h após o evento)
         if (
             not os_item["regua_d1_enviado_em"]
             and timedelta(hours=20) <= delta <= timedelta(hours=30)
         ):
-            msg = (
-                f"Oi {nome}! 🌟\n\n"
-                f"Foi uma alegria ter você e seus convidados no *{titulo}*.\n"
-                f"Esperamos que a experiência tenha superado as expectativas.\n\n"
-                f"Qualquer coisa que precisar, estamos por aqui. Até a próxima! 🥂"
-            )
-            notif.send_to_customer(restaurant_phone, telefone, msg)
+            if _twilio:
+                _twilio.messages.create(
+                    from_=_from, to=_to,
+                    content_sid="HX7a16cfb714c360daa4cb1dd391839f1a",
+                    content_variables=_vars,
+                )
             await db.marcar_regua_enviada(os_id, "d1")
             enviados.append({"os_id": os_id, "etapa": "d1"})
 
@@ -816,13 +821,12 @@ async def _job_regua_pos_evento(restaurant_id: str):
             and not os_item["regua_d3_enviado_em"]
             and timedelta(hours=68) <= delta <= timedelta(hours=80)
         ):
-            msg = (
-                f"Oi {nome}! 😊\n\n"
-                f"Gostaríamos muito de saber como foi *{titulo}* para você.\n\n"
-                f"De *1 a 10*, qual nota você dá para a experiência?\n\n"
-                f"_(Basta responder com o número)_"
-            )
-            notif.send_to_customer(restaurant_phone, telefone, msg)
+            if _twilio:
+                _twilio.messages.create(
+                    from_=_from, to=_to,
+                    content_sid="HXe90e74853e6f43815ed076964f39030b",
+                    content_variables=_vars,
+                )
             await db.marcar_regua_enviada(os_id, "d3")
             enviados.append({"os_id": os_id, "etapa": "d3"})
 
@@ -832,13 +836,12 @@ async def _job_regua_pos_evento(restaurant_id: str):
             and not os_item["regua_d7_enviado_em"]
             and timedelta(days=7) <= delta <= timedelta(days=8)
         ):
-            msg = (
-                f"Oi {nome}! 📸\n\n"
-                f"As memórias de *{titulo}* ficaram lindas!\n\n"
-                f"Se quiser compartilhar fotos ou tiver algum feedback adicional, "
-                f"adoraríamos receber. Guarde nossa agenda para o próximo momento especial 🥂"
-            )
-            notif.send_to_customer(restaurant_phone, telefone, msg)
+            if _twilio:
+                _twilio.messages.create(
+                    from_=_from, to=_to,
+                    content_sid="HXaacf87d6d7d582ff3a26c98bd41b9637",
+                    content_variables=_vars,
+                )
             await db.marcar_regua_enviada(os_id, "d7")
             enviados.append({"os_id": os_id, "etapa": "d7"})
 
@@ -848,14 +851,12 @@ async def _job_regua_pos_evento(restaurant_id: str):
             and not os_item["regua_d30_enviado_em"]
             and timedelta(days=30) <= delta <= timedelta(days=32)
         ):
-            msg = (
-                f"Oi {nome}! 👋\n\n"
-                f"Faz um mês desde *{titulo}* e ainda lembramos com carinho.\n\n"
-                f"Já tem algum novo momento especial no horizonte? "
-                f"Aniversário, confraternização, jantar especial?\n\n"
-                f"Será um prazer criar uma experiência única para você novamente. 🌟"
-            )
-            notif.send_to_customer(restaurant_phone, telefone, msg)
+            if _twilio:
+                _twilio.messages.create(
+                    from_=_from, to=_to,
+                    content_sid="HX2f99ec2032087dc650b2e84047345048",
+                    content_variables=_vars,
+                )
             await db.marcar_regua_enviada(os_id, "d30")
             enviados.append({"os_id": os_id, "etapa": "d30"})
 
