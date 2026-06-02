@@ -14,6 +14,20 @@ Sprint C2: agent.py refatorado em 4 módulos:
 """
 
 import os, re, asyncio, time, anthropic
+
+# ── Interceptor hardcoded: Dia dos Namorados 12/06 ─────────────
+_DIA_NAMORADOS_PATTERNS = [
+    r"12.?06", r"dia dos namorados", r"namorados", r"12 de junho", r"junho.*12"
+]
+_MSG_NAMORADOS = (
+    "O Dia dos Namorados é uma data muito especial para nós! 🌹 "
+    "Vou te conectar com nossa equipe para garantir que tudo fique "
+    "perfeito para você e sua pessoa especial."
+)
+
+def _mensagem_e_namorados(texto: str) -> bool:
+    t = texto.lower()
+    return any(re.search(p, t) for p in _DIA_NAMORADOS_PATTERNS)
 from datetime import datetime
 import database as db
 from agent_prompt import build_prompt, _FALLBACK_BODY
@@ -220,6 +234,22 @@ class RestaurantAgent:
         if await db.is_in_handoff(user_phone, rid):
             await db.save_message(user_phone, rid, "user", message)
             return None
+
+        # Interceptor hardcoded — 12/06 nunca chega no LLM
+        if _mensagem_e_namorados(message):
+            print(f"[AGENT] Interceptor 12/06 acionado user={user_phone!r}")
+            hid = await db.create_handoff(user_phone, rid, "Reserva Dia dos Namorados (12/06)")
+            team = await db.get_on_duty_team(rid)
+            if team:
+                import notifications as notif_handoff
+                for m in team[:2]:
+                    notif_handoff.notify_handoff(
+                        m["whatsapp"], restaurant["nome"],
+                        user_phone, "Reserva Dia dos Namorados (12/06)", message
+                    )
+            await db.save_message(user_phone, rid, "user", message)
+            await db.save_message(user_phone, rid, "assistant", _MSG_NAMORADOS)
+            return _MSG_NAMORADOS
 
         history = await db.get_history(user_phone, rid, MAX_HISTORY)
         history.append({"role":"user","content":message})
