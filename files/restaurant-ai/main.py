@@ -859,7 +859,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
             await db.marcar_regua_enviada(os_id, "d30")
             enviados.append({"os_id": os_id, "etapa": "d30"})
 
-    logger.info(f"[pos-evento] {len(enviados)} mensagens enviadas")
+    print(f"[pos-evento] {len(enviados)} mensagens enviadas")
     return {"enviados": len(enviados)}
 
 
