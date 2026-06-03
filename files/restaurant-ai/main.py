@@ -1077,6 +1077,64 @@ async def criar_checkout_os(restaurant_id: str, os_id: str):
     return {"checkout_url": session.url, "session_id": session.id}
 
 
+@app.post("/api/os/{restaurant_id}/{os_id}/pagamento/link", dependencies=[Depends(require_admin)])
+async def gerar_link_pagamento(restaurant_id: str, os_id: str, data: dict = Body(default={})):
+    """Gera um Stripe Payment Link para a OS com tipo: entrada | total | saldo."""
+    import stripe as _stripe, asyncio
+
+    _stripe.api_key = os.environ.get("STRIPE_SECRET_KEY")
+    if not _stripe.api_key:
+        raise HTTPException(status_code=503, detail="Stripe não configurado")
+
+    os_data = await db.get_os(os_id, restaurant_id)
+    if not os_data:
+        raise HTTPException(status_code=404, detail="OS não encontrada")
+
+    tipo = data.get("tipo", "entrada")
+    if tipo not in ("entrada", "total", "saldo"):
+        raise HTTPException(status_code=422, detail="tipo deve ser 'entrada', 'total' ou 'saldo'")
+
+    valor_entrada = float(os_data.get("valor_entrada") or 0)
+    valor_total   = float(os_data.get("valor_total")   or 0)
+
+    if tipo == "entrada":
+        valor = valor_entrada
+        desc  = "Entrada"
+    elif tipo == "total":
+        valor = valor_total
+        desc  = "Total"
+    else:
+        valor = max(valor_total - valor_entrada, 0)
+        desc  = "Saldo restante"
+
+    if valor <= 0:
+        raise HTTPException(status_code=422, detail=f"Valor para '{tipo}' é zero ou inválido")
+
+    amount_cents = int(round(valor * 100))
+    nome_produto = f"{desc} — {os_data.get('tipo_evento', 'Evento')}"
+    desc_produto = f"{os_data.get('pessoas', '—')} pessoas · {os_data.get('data', '—')}"
+
+    def _create_link():
+        price = _stripe.Price.create(
+            currency="brl",
+            unit_amount=amount_cents,
+            product_data={
+                "name": nome_produto,
+                "metadata": {"os_id": os_id, "restaurant_id": restaurant_id},
+            },
+        )
+        link = _stripe.PaymentLink.create(
+            line_items=[{"price": price.id, "quantity": 1}],
+            metadata={"os_id": os_id, "restaurant_id": restaurant_id, "tipo": tipo},
+            after_completion={"type": "redirect",
+                              "redirect": {"url": f"{os.environ.get('PAINEL_URL', 'https://madonna-painel.vercel.app')}/os?payment=success"}},
+        )
+        return link
+
+    link = await asyncio.get_event_loop().run_in_executor(None, _create_link)
+    return {"url": link.url, "id": link.id, "tipo": tipo, "valor": valor}
+
+
 @app.post("/webhook/stripe")
 async def stripe_webhook(request: Request):
     import stripe
