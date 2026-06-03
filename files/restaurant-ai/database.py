@@ -646,16 +646,28 @@ async def list_contacts(
         conditions.append(f"opt_in_marketing=${len(params)}")
     where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     params.append(limit)
+    _nps_sub = (
+        "(SELECT nps_score FROM ordens_servico "
+        "WHERE cliente_phone = c.celular AND nps_score IS NOT NULL "
+        "ORDER BY nps_respondido_em DESC NULLS LAST LIMIT 1) AS nps_ultimo"
+    )
     async with pool().acquire() as c:
         rows = await c.fetch(
-            f"SELECT * FROM contacts {where} ORDER BY atualizado_em DESC LIMIT ${len(params)}",
+            f"SELECT c.*, {_nps_sub} FROM contacts c {where} ORDER BY c.atualizado_em DESC LIMIT ${len(params)}",
             *params)
     return [dict(r) for r in rows]
 
 
 async def get_contact(celular: str) -> Optional[dict]:
+    _nps_sub = (
+        "(SELECT nps_score FROM ordens_servico "
+        "WHERE cliente_phone = c.celular AND nps_score IS NOT NULL "
+        "ORDER BY nps_respondido_em DESC NULLS LAST LIMIT 1) AS nps_ultimo"
+    )
     async with pool().acquire() as c:
-        row = await c.fetchrow("SELECT * FROM contacts WHERE celular=$1", celular)
+        row = await c.fetchrow(
+            f"SELECT c.*, {_nps_sub} FROM contacts c WHERE c.celular=$1",
+            celular)
     return dict(row) if row else None
 
 
