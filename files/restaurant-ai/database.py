@@ -1694,3 +1694,56 @@ async def marcar_os_realizada(os_id: str) -> None:
                WHERE id = $1""",
             os_id
         )
+
+
+# ── Checklists D-7 / D-0 ─────────────────────────────────────
+
+async def get_or_create_checklist(os_id: str, tipo: str) -> list[dict]:
+    """Retorna itens do checklist da OS. Cria a partir do template se ainda não existir."""
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            "SELECT * FROM checklist_instancias WHERE os_id=$1 AND tipo=$2 ORDER BY ordem",
+            os_id, tipo
+        )
+        if rows:
+            return [dict(r) for r in rows]
+        # Cria instâncias a partir do template
+        templates = await c.fetch(
+            "SELECT * FROM checklist_templates WHERE tipo=$1 AND ativo=TRUE ORDER BY ordem",
+            tipo
+        )
+        if not templates:
+            return []
+        for t in templates:
+            await c.execute(
+                """INSERT INTO checklist_instancias (os_id, tipo, ordem, item)
+                   VALUES ($1, $2, $3, $4)""",
+                os_id, tipo, t["ordem"], t["item"]
+            )
+        rows = await c.fetch(
+            "SELECT * FROM checklist_instancias WHERE os_id=$1 AND tipo=$2 ORDER BY ordem",
+            os_id, tipo
+        )
+        return [dict(r) for r in rows]
+
+
+async def toggle_checklist_item(item_id: str, concluido_por: str = "equipe") -> Optional[dict]:
+    """Alterna concluído/pendente de um item do checklist."""
+    async with pool().acquire() as c:
+        cur = await c.fetchrow(
+            "SELECT concluido FROM checklist_instancias WHERE id=$1",
+            item_id
+        )
+        if not cur:
+            return None
+        novo = not cur["concluido"]
+        updated = await c.fetchrow(
+            """UPDATE checklist_instancias
+               SET concluido     = $1,
+                   concluido_em  = CASE WHEN $1 THEN NOW() ELSE NULL END,
+                   concluido_por = CASE WHEN $1 THEN $2  ELSE NULL END
+               WHERE id = $3
+               RETURNING *""",
+            novo, concluido_por, item_id
+        )
+        return dict(updated) if updated else None

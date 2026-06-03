@@ -1112,6 +1112,23 @@ async def stripe_webhook(request: Request):
     return {"ok": True}
 
 
+# ── Checklists D-7 / D-0 ─────────────────────────────────────
+
+@app.get("/api/os/{restaurant_id}/{os_id}/checklist", dependencies=[Depends(require_admin)])
+async def get_checklist_os(restaurant_id: str, os_id: str, tipo: str = "d7"):
+    if tipo not in ("d7", "d0"):
+        raise HTTPException(status_code=422, detail="tipo deve ser 'd7' ou 'd0'")
+    items = await db.get_or_create_checklist(os_id, tipo)
+    return items
+
+@app.patch("/api/os/{restaurant_id}/{os_id}/checklist/{item_id}", dependencies=[Depends(require_admin)])
+async def patch_checklist_item(restaurant_id: str, os_id: str, item_id: str, data: dict = Body(default={})):
+    result = await db.toggle_checklist_item(item_id, data.get("concluido_por", "equipe"))
+    if not result:
+        raise HTTPException(status_code=404, detail="Item do checklist não encontrado")
+    return result
+
+
 # ════════════════════════════════════════════════════════════════
 # UTILITÁRIOS
 # ════════════════════════════════════════════════════════════════
