@@ -1188,6 +1188,68 @@ async def patch_checklist_item(restaurant_id: str, os_id: str, item_id: str, dat
 
 
 # ════════════════════════════════════════════════════════════════
+# WIDGET DE RESERVA — endpoint público com rate limiting
+# ════════════════════════════════════════════════════════════════
+
+import time as _time
+from collections import defaultdict as _defaultdict
+
+_widget_hits: dict[str, list[float]] = _defaultdict(list)
+_WIDGET_RPM = 10  # requests por minuto por IP
+
+def _widget_rate_ok(ip: str) -> bool:
+    now = _time.time()
+    _widget_hits[ip] = [t for t in _widget_hits[ip] if now - t < 60]
+    if len(_widget_hits[ip]) >= _WIDGET_RPM:
+        return False
+    _widget_hits[ip].append(now)
+    return True
+
+
+class WidgetReservaIn(BaseModel):
+    nome:        str
+    telefone:    str
+    tipo_evento: str
+    data:        str
+    pessoas:     int
+    observacoes: Optional[str] = None
+
+
+@app.post("/api/widget/reserva/{restaurant_id}")
+async def widget_reserva(
+    restaurant_id: str,
+    body: WidgetReservaIn,
+    request: Request,
+):
+    ip = request.headers.get("x-forwarded-for", request.client.host or "unknown").split(",")[0].strip()
+    if not _widget_rate_ok(ip):
+        raise HTTPException(status_code=429, detail="Muitas solicitações. Tente novamente em alguns instantes.")
+
+    # Persiste o contato (cria ou atualiza nome)
+    telefone = "".join(filter(str.isdigit, body.telefone))
+    if not telefone.startswith("55"):
+        telefone = "55" + telefone
+
+    try:
+        await db.ensure_contact(telefone, body.nome)
+    except Exception:
+        pass  # não bloqueia o fluxo se o contato já existir
+
+    # Cria handoff para a equipe revisar o pedido
+    motivo = (
+        f"Pedido via widget — {body.tipo_evento} · {body.data} · "
+        f"{body.pessoas} pax · {body.observacoes or 'sem observações'}"
+    )
+    try:
+        await db.create_handoff(telefone, restaurant_id, motivo)
+    except Exception:
+        pass
+
+    print(f"[WIDGET] {restaurant_id} | {telefone} | {body.tipo_evento} | {body.data}")
+    return {"ok": True, "mensagem": "Pedido recebido! Nossa equipe entrará em contato em breve."}
+
+
+# ════════════════════════════════════════════════════════════════
 # UTILITÁRIOS
 # ════════════════════════════════════════════════════════════════
 
