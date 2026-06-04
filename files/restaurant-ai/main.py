@@ -26,6 +26,11 @@ from models import (
     ContactUpsert, ContactUpdate, ContactKanbanMove,
 )
 import notifications as notif
+from email_service import (
+    send_confirmacao_reserva,
+    send_proposta_enviada,
+    send_comprovante_pagamento,
+)
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
@@ -475,6 +480,13 @@ async def confirmar(restaurant_id: str, reserva_id: str):
     ok = await db.confirmar_reserva(reserva_id, restaurant_id)
     if not ok:
         raise HTTPException(404, "Reserva não encontrada ou não está pendente")
+    # Fire-and-forget: email de confirmação não bloqueia a resposta
+    try:
+        reserva_data = await db.get_reserva(reserva_id)
+        if reserva_data:
+            asyncio.create_task(send_confirmacao_reserva(dict(reserva_data)))
+    except Exception as _e:
+        print(f"[email] erro ao disparar confirmacao_reserva: {_e!r}")
     return {"ok": True}
 
 @app.get("/api/agenda/{restaurant_id}/ocupacao")
@@ -1067,6 +1079,12 @@ async def atualizar_os(restaurant_id: str, os_id: str, data: dict = Body(...)):
     result = await db.atualizar_os(os_id, restaurant_id, data)
     if not result:
         raise HTTPException(status_code=404, detail="OS não encontrada")
+    # Fire-and-forget: email de proposta quando status muda para proposta_enviada
+    if data.get("status") == "proposta_enviada":
+        try:
+            asyncio.create_task(send_proposta_enviada(dict(result)))
+        except Exception as _e:
+            print(f"[email] erro ao disparar proposta_enviada: {_e!r}")
     return result
 
 @app.post("/api/os/{restaurant_id}/{os_id}/checkout", dependencies=[Depends(require_admin)])
@@ -1198,11 +1216,21 @@ async def stripe_webhook(request: Request):
         os_id = metadata.get("os_id")
         rid = metadata.get("restaurant_id")
         payment_intent = session.get("payment_intent")
+        amount_received = session.get("amount_total")  # em centavos
         if os_id and rid:
             await db.atualizar_os(os_id, rid, {
                 "status": "entrada_paga",
                 "stripe_payment_intent_id": payment_intent,
             })
+            # TODO sprint6-email: descomentar quando send_comprovante_pagamento estiver
+            # integrado com campos de cliente_email na OS.
+            # try:
+            #     os_data = await db.get_os(os_id, rid)
+            #     if os_data:
+            #         valor_pago = (amount_received or 0) / 100.0
+            #         asyncio.create_task(send_comprovante_pagamento(dict(os_data), valor_pago))
+            # except Exception as _e:
+            #     print(f"[email] erro ao disparar comprovante_pagamento: {_e!r}")
 
     return {"ok": True}
 
