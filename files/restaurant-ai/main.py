@@ -430,8 +430,15 @@ async def listar_reservas_agenda(
     data: str | None = None,
     status: str | None = None,
     limit: int = 100,
+    view: str | None = None,
+    data_inicio: str | None = None,
 ):
     from datetime import date
+    # view=semana: retorna agregado de 7 dias
+    if view == "semana":
+        start = data_inicio or date.today().isoformat()
+        rows = await db.listar_reservas_semana(restaurant_id, start)
+        return rows
     target = data or date.today().isoformat()
     rows = await db.listar_reservas_por_data(restaurant_id, target, status, limit)
     return rows
@@ -479,6 +486,36 @@ async def ocupacao_mensal(restaurant_id: str, mes: str | None = None):
 
 @app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/cancelar")
 async def cancelar(restaurant_id: str, reserva_id: str):
+    ok = await db.cancelar_reserva(reserva_id, restaurant_id)
+    if not ok:
+        raise HTTPException(404, "Reserva não encontrada ou já cancelada")
+    return {"ok": True}
+
+
+@app.patch("/api/agenda/{restaurant_id}/reservas/{reserva_id}/status",
+           dependencies=[Depends(require_admin)])
+async def atualizar_status_reserva(
+    restaurant_id: str,
+    reserva_id: str,
+    body: dict = Body(...),
+):
+    """Atualiza status genérico: no_show | realizada | confirmada | cancelada"""
+    status = body.get("status")
+    if not status:
+        raise HTTPException(422, "Campo 'status' obrigatório")
+    try:
+        reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    if not reserva:
+        raise HTTPException(404, "Reserva não encontrada")
+    return reserva
+
+
+@app.delete("/api/agenda/{restaurant_id}/reservas/{reserva_id}",
+            dependencies=[Depends(require_admin)])
+async def deletar_reserva(restaurant_id: str, reserva_id: str):
+    """Soft delete — equivale a cancelar."""
     ok = await db.cancelar_reserva(reserva_id, restaurant_id)
     if not ok:
         raise HTTPException(404, "Reserva não encontrada ou já cancelada")

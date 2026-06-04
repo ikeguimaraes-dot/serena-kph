@@ -1462,6 +1462,48 @@ async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
     return int(result.split()[-1]) > 0
 
 
+_STATUS_RESERVA_VALIDOS = {"no_show", "realizada", "confirmada", "cancelada", "pendente"}
+
+async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: str) -> Optional[dict]:
+    """Atualiza status de uma reserva. Retorna a reserva atualizada ou None se não encontrada."""
+    if status not in _STATUS_RESERVA_VALIDOS:
+        raise ValueError(f"Status inválido: {status}. Válidos: {_STATUS_RESERVA_VALIDOS}")
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            UPDATE reservas SET status = $3
+            WHERE id = $1 AND restaurant_id = $2
+            RETURNING *
+        """, reserva_id, restaurant_id, status)
+    return dict(row) if row else None
+
+
+async def listar_reservas_semana(restaurant_id: str, data_inicio: str) -> list[dict]:
+    """Retorna agregado de 7 dias a partir de data_inicio, com contagens por status."""
+    from datetime import date as _date, timedelta as _td
+    try:
+        start = _date.fromisoformat(data_inicio)
+    except ValueError:
+        start = _date.today()
+    end = start + _td(days=6)
+
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT
+                d.data::DATE                                                                              AS data,
+                COUNT(r.id) FILTER (WHERE r.status IN ('confirmada','pendente'))                          AS total_reservas,
+                COALESCE(SUM(r.posicoes) FILTER (WHERE r.status IN ('confirmada','pendente')), 0)::INT    AS total_pax,
+                COUNT(r.id) FILTER (WHERE r.status = 'confirmada')                                        AS confirmadas,
+                COUNT(r.id) FILTER (WHERE r.status = 'cancelada')                                         AS canceladas,
+                COUNT(r.id) FILTER (WHERE r.status = 'no_show')                                           AS no_show
+            FROM generate_series($2::date, $3::date, INTERVAL '1 day') d(data)
+            LEFT JOIN reservas r
+                ON r.data = d.data::DATE AND r.restaurant_id = $1
+            GROUP BY d.data
+            ORDER BY d.data
+        """, restaurant_id, start, end)
+    return [dict(r) for r in rows]
+
+
 async def get_ocupacao_mensal(restaurant_id: str, mes: str) -> list[dict]:
     """Retorna ocupação agregada por dia para um mês. mes = 'YYYY-MM'"""
     async with pool().acquire() as c:
