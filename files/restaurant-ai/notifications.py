@@ -44,8 +44,10 @@ def notify_handoff(
         f"Contexto:\n{resumo}\n\n"
         f"Acesse o painel ou contate o cliente diretamente."
     )
+    raw_from = os.environ.get("TWILIO_FROM_NUMBER", "")
+    from_number = raw_from.replace("whatsapp:", "").strip()
     client.messages.create(
-        from_=f"whatsapp:{os.environ.get('TWILIO_FROM_NUMBER','')}",
+        from_=f"whatsapp:{from_number}",
         to=f"whatsapp:{team_whatsapp}",
         body=body,
     )
@@ -64,8 +66,10 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     if not client:
         print(f"[MSG → {customer_phone}] (Twilio não configurado): {message[:80]}")
         return
-    sender = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
-    # Não captura exceção — deixa propagar para o caller
+    raw_sender = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
+    # Normaliza: remove "whatsapp:" prefix se já estiver no env var
+    sender = raw_sender.replace("whatsapp:", "").strip()
+    # Normaliza: garante formato E.164 no destinatário
     to_number = customer_phone if customer_phone.startswith("+") else f"+{customer_phone}"
     msg = client.messages.create(
         from_=f"whatsapp:{sender}",
