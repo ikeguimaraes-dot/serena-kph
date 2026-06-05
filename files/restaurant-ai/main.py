@@ -450,16 +450,53 @@ async def listar_reservas_agenda(
 
 @app.post("/api/agenda/{restaurant_id}/reservas", status_code=201)
 async def nova_reserva(restaurant_id: str, body: dict = Body(...)):
-    """Cria nova reserva. Verifica disponibilidade antes."""
-    for campo in ("data", "turno_id", "posicoes"):
+    """Cria nova reserva. Verifica disponibilidade antes.
+
+    turno_id é opcional — quando ausente tenta resolver via hora_inicio.
+    Aceita aliases de campo: nome/cliente_nome, telefone/cliente_phone, pessoas/posicoes.
+    """
+    # Normaliza aliases enviados pelo curl / fontes externas
+    if "nome" in body and "cliente_nome" not in body:
+        body["cliente_nome"] = body.pop("nome")
+    if "telefone" in body and "cliente_phone" not in body:
+        body["cliente_phone"] = body.pop("telefone")
+    if "pessoas" in body and "posicoes" not in body:
+        body["posicoes"] = body.pop("pessoas")
+
+    # Campos mínimos obrigatórios
+    for campo in ("data", "posicoes"):
         if campo not in body:
             raise HTTPException(status_code=422, detail=f"Campo obrigatório ausente: {campo}")
+
+    # turno_id opcional: tenta resolver via hora_inicio se não vier no body
+    turno_id = body.get("turno_id")
+    if not turno_id and body.get("hora_inicio"):
+        from datetime import date as _date
+        try:
+            data_obj = _date.fromisoformat(str(body["data"]))
+            # PostgreSQL EXTRACT(DOW) = 0 (Dom) … 6 (Sab); Python weekday() = 0 (Seg) … 6 (Dom)
+            dia_dow = (data_obj.weekday() + 1) % 7
+            turnos = await db.get_turnos(restaurant_id, dia_dow)
+            hora_req = str(body["hora_inicio"])[:5]  # "19:00"
+            match = next(
+                (t for t in turnos if str(t.get("hora_inicio", ""))[:5] == hora_req), None
+            )
+            if match:
+                turno_id = str(match["id"])
+                body["turno_id"] = turno_id
+        except Exception as _e:
+            print(f"[nova_reserva] turno lookup falhou: {_e!r}")
+
     body["restaurant_id"] = restaurant_id
-    disponivel = await db.check_disponibilidade(
-        restaurant_id, body["data"], body["turno_id"], body["posicoes"]
-    )
-    if not disponivel.get("disponivel"):
-        raise HTTPException(409, detail=disponivel.get("motivo", "Sem disponibilidade"))
+
+    # Verifica disponibilidade apenas se turno_id foi resolvido
+    if turno_id:
+        disponivel = await db.check_disponibilidade(
+            restaurant_id, body["data"], turno_id, int(body["posicoes"])
+        )
+        if not disponivel.get("disponivel"):
+            raise HTTPException(409, detail=disponivel.get("motivo", "Sem disponibilidade"))
+
     reserva = await db.criar_reserva(body)
     return reserva
 

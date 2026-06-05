@@ -12,6 +12,7 @@ import sys
 import urllib.request
 import urllib.error
 import json
+from typing import Optional
 
 SUPABASE_URL = "https://fgntcrxuhfwcauvahaiz.supabase.co"
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
@@ -32,7 +33,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-def req(method: str, url: str, body: dict | None = None) -> dict:
+def req(method: str, url: str, body: Optional[dict] = None) -> dict:
     data = json.dumps(body).encode() if body else None
     r = urllib.request.Request(url, data=data, headers=HEADERS, method=method)
     try:
