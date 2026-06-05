@@ -55,18 +55,21 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
 
     Usa TWILIO_FROM_NUMBER (sender autorizado na Twilio) como remetente.
     Cai em restaurant_number só se TWILIO_FROM_NUMBER não estiver configurado.
+
+    Lança exceção em caso de falha — callers decidem como tratar:
+      - _process_and_reply (background): captura e loga
+      - handoff_reply (painel): captura e retorna HTTP 502
     """
     client = _client()
     if not client:
         print(f"[MSG → {customer_phone}] (Twilio não configurado): {message[:80]}")
         return
     sender = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
-    try:
-        msg = client.messages.create(
-            from_=f"whatsapp:{sender}",
-            to=f"whatsapp:{customer_phone}",
-            body=message,
-        )
-        print(f"[MSG → {customer_phone}] Twilio OK sid={msg.sid}")
-    except Exception as e:
-        print(f"[MSG → {customer_phone}] Twilio FALHOU from={sender!r}: {e!r}")
+    # Não captura exceção — deixa propagar para o caller
+    to_number = customer_phone if customer_phone.startswith("+") else f"+{customer_phone}"
+    msg = client.messages.create(
+        from_=f"whatsapp:{sender}",
+        to=f"whatsapp:{to_number}",
+        body=message,
+    )
+    print(f"[MSG → {to_number}] Twilio OK sid={msg.sid}")
