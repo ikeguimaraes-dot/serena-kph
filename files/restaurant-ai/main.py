@@ -1061,6 +1061,140 @@ async def seed_prompt_v1():
     return {"ok": True, "id": pid}
 
 
+# ════════════════════════════════════════════════════════════════
+# ORKESTRI — Executor de propostas de aprendizado
+# ════════════════════════════════════════════════════════════════
+
+async def _executar_proposta(proposta: dict) -> dict:
+    """Aplica uma proposta de aprendizado aprovada ao prompt ativo.
+
+    Tipos suportados:
+      faq          → anexa bloco FAQ ao final do prompt
+      nova_intencao → anexa nova intenção à seção de intenções
+      prompt_update → aplica melhoria geral ao prompt
+      integracao    → sem alteração de prompt (registra apenas)
+      treino        → sem alteração de prompt (registra apenas)
+    """
+    tipo = proposta.get("tipo", "")
+    proposta_id = proposta["id"]
+    titulo = proposta.get("titulo") or proposta.get("proposta", "")[:60]
+    conteudo = proposta.get("proposta", "")
+    contexto = proposta.get("contexto") or {}
+
+    # Tipos sem alteração de prompt
+    if tipo in ("integracao", "treino"):
+        return {"executado": False, "motivo": f"tipo '{tipo}' não requer alteração de prompt"}
+
+    # Busca prompt ativo
+    ativo = await db.get_active_prompt()
+    if not ativo:
+        return {"executado": False, "motivo": "Nenhum prompt ativo encontrado"}
+
+    prompt_base = ativo["prompt_completo"]
+    versao_base = ativo["versao"]
+
+    # Monta o bloco a adicionar dependendo do tipo
+    if tipo == "faq":
+        bloco = f"\n\n# FAQ — APRENDIZADO AUTOMÁTICO ({titulo})\n{conteudo}"
+    elif tipo == "nova_intencao":
+        bloco = f"\n\n# NOVA INTENÇÃO — {titulo}\n{conteudo}"
+    elif tipo == "prompt_update":
+        bloco = f"\n\n# ATUALIZAÇÃO DE COMPORTAMENTO — {titulo}\n{conteudo}"
+    else:
+        bloco = f"\n\n# AJUSTE — {titulo}\n{conteudo}"
+
+    novo_prompt = prompt_base + bloco
+
+    # Gera próximo número de versão  (ex: "v5" → "v6")
+    import re as _re
+    nums = _re.findall(r"\d+", str(versao_base))
+    prox = int(nums[-1]) + 1 if nums else 1
+    nova_versao = f"v{prox}"
+
+    # Insere nova versão ativa com referência à proposta
+    async with db.pool().acquire() as c:
+        async with c.transaction():
+            await c.execute("UPDATE serena_prompt_versions SET ativa=FALSE WHERE ativa=TRUE")
+            row = await c.fetchrow("""
+                INSERT INTO serena_prompt_versions
+                  (versao, prompt_completo, changelog, ativa, proposta_id, aprovado_por)
+                VALUES ($1, $2, $3, TRUE, $4, $5) RETURNING id""",
+                nova_versao,
+                novo_prompt,
+                f"Executado automaticamente — proposta #{proposta_id} ({tipo}): {titulo}",
+                proposta_id,
+                "admin",
+            )
+    db._prompt_cache_clear()
+    return {
+        "executado": True,
+        "nova_versao": nova_versao,
+        "prompt_version_id": row["id"],
+        "tipo": tipo,
+        "bloco_adicionado": bloco[:200],
+    }
+
+
+@app.post("/api/orkestri/propostas/{proposta_id}/aprovar",
+          dependencies=[Depends(require_admin)])
+async def aprovar_proposta(proposta_id: int):
+    """Aprova uma proposta e dispara o executor de prompt."""
+    async with db.pool().acquire() as c:
+        row = await c.fetchrow(
+            "SELECT * FROM orkestri_learning WHERE id=$1", proposta_id)
+    if not row:
+        raise HTTPException(404, detail="Proposta não encontrada")
+    proposta = dict(row)
+    if proposta["status"] != "pending":
+        raise HTTPException(400, detail=f"Proposta já está '{proposta['status']}'")
+
+    # Marca como aprovada
+    async with db.pool().acquire() as c:
+        await c.execute(
+            "UPDATE orkestri_learning SET status='approved' WHERE id=$1", proposta_id)
+
+    # Executa
+    resultado = await _executar_proposta(proposta)
+    return {"ok": True, "proposta_id": proposta_id, **resultado}
+
+
+@app.post("/api/orkestri/propostas/{proposta_id}/descartar",
+          dependencies=[Depends(require_admin)])
+async def descartar_proposta(proposta_id: int):
+    """Descarta uma proposta de aprendizado."""
+    async with db.pool().acquire() as c:
+        row = await c.fetchrow(
+            "SELECT id, status FROM orkestri_learning WHERE id=$1", proposta_id)
+    if not row:
+        raise HTTPException(404, detail="Proposta não encontrada")
+    if row["status"] != "pending":
+        raise HTTPException(400, detail=f"Proposta já está '{row['status']}'")
+    async with db.pool().acquire() as c:
+        await c.execute(
+            "UPDATE orkestri_learning SET status='dismissed' WHERE id=$1", proposta_id)
+    return {"ok": True, "proposta_id": proposta_id, "status": "dismissed"}
+
+
+@app.get("/api/orkestri/historico-prompts",
+         dependencies=[Depends(require_admin)])
+async def historico_prompts(limit: int = 30):
+    """Lista versões do prompt com proposta de origem."""
+    async with db.pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT
+                spv.id, spv.versao, spv.changelog, spv.ativa,
+                spv.criado_em, spv.aprovado_por,
+                spv.proposta_id,
+                ol.titulo AS proposta_titulo,
+                ol.tipo   AS proposta_tipo,
+                LEFT(spv.prompt_completo, 200) AS preview
+            FROM serena_prompt_versions spv
+            LEFT JOIN orkestri_learning ol ON ol.id = spv.proposta_id
+            ORDER BY spv.criado_em DESC
+            LIMIT $1""", limit)
+    return [dict(r) for r in rows]
+
+
 # ── Weekly report (gera análise via Claude) ───────────────────
 
 @app.post("/api/serena/weekly-report", dependencies=[Depends(require_admin)])
