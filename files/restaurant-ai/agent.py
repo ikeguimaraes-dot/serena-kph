@@ -63,7 +63,7 @@ _RE_NAO_SEI = re.compile(
 # Taxonomia de intenções — mais específico primeiro.
 _RE_INTENCAO = [
     ("reserva_existente", re.compile(r"\b(cancel|alterar reserva|mudar reserva|minha reserva|já reservei|já tenho reserva|tenho reserva)", re.I)),
-    ("reserva_nova",      re.compile(r"\b(reserv|mesa|lugar|assento|disponib|horario|horário|tagme|agendar|marcar mesa|quero jantar|quero almoç)", re.I)),
+    ("reserva_nova",      re.compile(r"\b(reserv|mesa|lugar|assento|disponib|horario|horário|agendar|marcar mesa|quero jantar|quero almoç)", re.I)),
     ("reclamacao",        re.compile(r"\b(reclam|insatisf|nojent|estragad|horrivel|horrível|pessim|péssim|decepcion|problema|demor|frio|gelado|mal atendid)", re.I)),
     ("cardapio",          re.compile(r"\b(cardapio|cardápio|prato|menu|comida|opcao|opção|tem.*pra comer|o que vocês servem|vegeta|vegan|sem gluten|sem lactose|alergi)", re.I)),
     ("horario",           re.compile(r"\b(horario|horário|abre|fecha|funcionamento|expediente|que horas|aberto|fechado|domingo|segunda|sabado|sábado)", re.I)),
@@ -96,11 +96,6 @@ def _detect_admitiu_nao_saber(text: str | None) -> bool:
         return False
     return bool(_RE_NAO_SEI.search(text))
 
-
-def _detect_link_tagme(text: str | None) -> bool:
-    if not text:
-        return False
-    return "reservation-widget.tagme.com.br" in text or "tagme.com.br" in text
 
 
 def _calc_cost_usd(tin: int, tout: int) -> float:
@@ -299,7 +294,6 @@ class RestaurantAgent:
                 "handoff_motivo": handoff_motivo,
                 "cliente_pediu_humano": _detect_pediu_humano(history),
                 "serena_admitiu_nao_saber": _detect_admitiu_nao_saber(result["text"]),
-                "enviou_link_tagme": _detect_link_tagme(response_text),
                 "intencao_detectada": _detect_intent(message),
                 "num_mensagens": len(history),
                 "prompt_versao_id": prompt_versao_id,

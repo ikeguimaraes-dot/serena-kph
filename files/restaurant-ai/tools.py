@@ -218,21 +218,24 @@ async def check_business_hours(restaurant_id: str, data: str) -> str:
 
 
 def get_reservation_link(pessoas=None, data: str | None = None, horario: str | None = None) -> str:
-    """Monta link Tagme com query params pré-preenchidos. Sem params, retorna o link base."""
-    base = "https://reservation-widget.tagme.com.br/reservation/schedule/691377229337bdf1ad07625f/reservationWidget"
-    params = []
+    """Monta link do widget de reservas da Serena com query params pré-preenchidos."""
+    import os as _os
+    painel = _os.environ.get("PAINEL_URL", "https://madonna-painel.vercel.app").rstrip("/")
+    rid = _os.environ.get("RESTAURANT_ID", "madonna_cucina")
+    base = f"{painel}/widget/reserva"
+    params = [f"rid={rid}"]
     target = _resolve_date(data) if data else None
     if target:
-        params.append(f"date={target.isoformat()}")
+        params.append(f"data={target.isoformat()}")
     t = _normalize_time(horario)
     if t:
-        params.append(f"time={t}")
+        params.append(f"hora={t}")
     if pessoas:
         try:
-            params.append(f"guests={int(pessoas)}")
+            params.append(f"pessoas={int(pessoas)}")
         except Exception:
             pass
-    return f"{base}?{'&'.join(params)}" if params else base
+    return f"{base}?{'&'.join(params)}"
 
 
 async def lookup_contact_history(user_phone: str, restaurant_id: str) -> str:
