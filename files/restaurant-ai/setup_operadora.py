@@ -1,6 +1,6 @@
 """
 setup_operadora.py — Cria o usuário operadora@madonna.com.br no Supabase Auth
-e insere na tabela operadores com role='operador'.
+e insere na tabela operadores com role='atendente'.
 
 Pré-requisito: SUPABASE_SERVICE_KEY (encontre em: Supabase dashboard → Project Settings → API → service_role)
 
@@ -20,7 +20,7 @@ SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 USER_EMAIL = "operadora@madonna.com.br"
 USER_PASSWORD = "madonna@2026"
 USER_NOME = "Operadora Madonna"
-USER_ROLE = "operador"
+USER_ROLE = "atendente"
 
 if not SERVICE_KEY:
     print("ERRO: defina SUPABASE_SERVICE_KEY antes de rodar este script.")
