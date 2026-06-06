@@ -51,15 +51,21 @@ INSERT INTO restaurants (
 
 ### 1.2 Inserir turnos (`agenda_turnos`)
 
-```sql
--- Exemplo: Jantar único, Seg–Dom
-INSERT INTO agenda_turnos (restaurant_id, nome, hora_inicio, hora_fim, dias_semana, capacidade)
-VALUES
-    ('meet_eat', 'Jantar', '19:00', '23:00', ARRAY[0,1,2,3,4,5,6], 80),
-    ('meet_eat', 'Almoço', '12:00', '15:00', ARRAY[0,5,6], 40);   -- só fim de semana + dom
-```
+> **IMPORTANTE:** a coluna é `dia_semana` (singular, INT) — uma linha por dia.
+> Não use `dias_semana` com array — esse campo não existe no schema.
 
-> Dias: PostgreSQL DOW — 0=Dom, 1=Seg, ..., 6=Sáb
+```sql
+-- Exemplo: Jantar Ter–Sáb (dias 2–6) + Almoço Dom (dia 0)
+-- Insira UMA linha por dia/turno. Dias: 0=Dom, 1=Seg, 2=Ter, 3=Qua, 4=Qui, 5=Sex, 6=Sáb
+INSERT INTO agenda_turnos (restaurant_id, nome, hora_inicio, hora_fim, dia_semana, capacidade_posicoes_max)
+VALUES
+    ('meet_and_eat', 'Jantar', '19:00', '23:00', 2, 80),  -- Ter
+    ('meet_and_eat', 'Jantar', '19:00', '23:00', 3, 80),  -- Qua
+    ('meet_and_eat', 'Jantar', '19:00', '23:00', 4, 80),  -- Qui
+    ('meet_and_eat', 'Jantar', '19:00', '23:00', 5, 80),  -- Sex
+    ('meet_and_eat', 'Jantar', '19:00', '23:00', 6, 80),  -- Sáb
+    ('meet_and_eat', 'Almoço', '12:00', '15:00', 0, 40);  -- Dom
+```
 
 **Tempo estimado: 15–20 min**
 
@@ -92,6 +98,10 @@ FAQ DA CASA
 
 ### 2.2 Fazer upload do prompt via API
 
+A tabela `serena_prompt_versions` tem coluna `restaurant_id` (TEXT, FK → `restaurants.id`).
+Toda versão de prompt deve ter `restaurant_id` preenchido — versões sem esse campo
+ficam órfãs e o backend não as carrega corretamente.
+
 ```bash
 # Após editar upload_prompt_v10.py com os dados da nova casa:
 BACKEND_URL=https://restaurant-ai-production-bb5d.up.railway.app
@@ -99,13 +109,18 @@ curl -s -X POST "$BACKEND_URL/api/serena/prompts" \
   -H "Content-Type: application/json" \
   -H "X-Admin-Secret: kph@serena2026" \
   -d '{
-    "nome": "meet-eat-v1",
+    "nome": "meet-and-eat-v1",
     "versao": "1",
-    "restaurant_id": "meet_eat",
+    "restaurant_id": "meet_and_eat",
     "prompt_completo": "<conteúdo do arquivo .txt>",
     "ativar": true
   }'
 ```
+
+> **Checklist `serena_prompt_versions`:**
+> - [ ] `restaurant_id` igual ao `id` inserido em `restaurants` (Passo 1.1)
+> - [ ] `ativa = true` apenas para uma versão por `restaurant_id`
+> - [ ] `versao` começa em `"1"` e incrementa a cada mudança via Orkestri
 
 Ou use o script `upload_prompt_v10.py` como modelo — duplicar e adaptar para a nova casa.
 
@@ -213,7 +228,7 @@ grep -n "restaurant_id\|allowed\|guard" painel/src/middleware.js | head -20
 USER_EMAIL = "operadora@meeteat.com.br"
 USER_PASSWORD = "meeteat@2026"
 USER_NOME = "Operadora Meet & Eat"
-USER_ROLE = "operador"
+USER_ROLE = "atendente"   # constraint operadores_role_check aceita: 'admin' | 'atendente'
 
 # Execute com a service key do Supabase
 SUPABASE_SERVICE_KEY=eyJ... python3 setup_operadora.py
