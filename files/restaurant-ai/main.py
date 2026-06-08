@@ -1,5 +1,6 @@
 """
 FastAPI — WhatsApp webhook + API REST completa para o painel.
+Sprint 9: multi-restaurante, financeiro, learning machine.
 """
 
 import os
