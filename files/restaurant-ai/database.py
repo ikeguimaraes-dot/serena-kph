@@ -64,7 +64,10 @@ async def get_restaurant_by_whatsapp(number: str) -> Optional[dict]:
 
 async def get_all_restaurants() -> list[dict]:
     async with pool().acquire() as c:
-        rows = await c.fetch("SELECT * FROM restaurants ORDER BY nome")
+        rows = await c.fetch(
+            "SELECT id, nome, nome_agente, whatsapp_number, descricao, ativo "
+            "FROM restaurants WHERE ativo=true ORDER BY nome"
+        )
     return [dict(r) for r in rows]
 
 async def get_restaurant_full(rid: str) -> Optional[dict]:
