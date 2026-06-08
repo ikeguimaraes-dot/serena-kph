@@ -1424,6 +1424,18 @@ async def patch_checklist_item(restaurant_id: str, os_id: str, item_id: str, dat
 
 
 # ════════════════════════════════════════════════════════════════
+# FINANCEIRO
+# ════════════════════════════════════════════════════════════════
+
+@app.get("/api/financeiro/{restaurant_id}", dependencies=[Depends(require_admin)])
+async def get_financeiro(restaurant_id: str, periodo: str = "mes"):
+    """Resumo financeiro das OS por período: semana | mes | trimestre."""
+    if periodo not in ("semana", "mes", "trimestre"):
+        raise HTTPException(422, "periodo deve ser semana, mes ou trimestre")
+    return await db.get_financeiro_resumo(restaurant_id, periodo)
+
+
+# ════════════════════════════════════════════════════════════════
 # WIDGET DE RESERVA — endpoint público com rate limiting
 # ════════════════════════════════════════════════════════════════
 
