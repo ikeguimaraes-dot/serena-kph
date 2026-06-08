@@ -1650,6 +1650,68 @@ async def atualizar_os(os_id: str, restaurant_id: str, data: dict) -> dict:
     return dict(row) if row else None
 
 
+# ─── Dashboard financeiro ─────────────────────────────────────
+
+async def get_financeiro_resumo(restaurant_id: str, periodo: str = "mes") -> dict:
+    """Resumo financeiro das OS por período: semana | mes | trimestre."""
+    from datetime import date as _date
+
+    hoje = _date.today()
+    if periodo == "semana":
+        inicio = hoje.replace(day=hoje.day - hoje.weekday())  # segunda-feira atual
+    elif periodo == "trimestre":
+        mes_trim = ((hoje.month - 1) // 3) * 3 + 1
+        inicio = hoje.replace(month=mes_trim, day=1)
+    else:  # mes (padrão)
+        inicio = hoje.replace(day=1)
+
+    query = """
+        SELECT
+            COALESCE(SUM(CASE WHEN status IN ('confirmado','realizado')
+                THEN valor_total ELSE 0 END), 0)                             AS receita_confirmada,
+            COALESCE(SUM(CASE WHEN status IN ('entrada_paga','confirmado','realizado')
+                THEN valor_entrada ELSE 0 END), 0)                           AS entradas_recebidas,
+            COALESCE(AVG(CASE WHEN status NOT IN ('rascunho','cancelado')
+                THEN valor_total END), 0)                                     AS ticket_medio,
+            COUNT(*) FILTER (WHERE status = 'rascunho')                      AS n_rascunho,
+            COUNT(*) FILTER (WHERE status = 'proposta_enviada')              AS n_proposta_enviada,
+            COUNT(*) FILTER (WHERE status = 'entrada_paga')                  AS n_entrada_paga,
+            COUNT(*) FILTER (WHERE status = 'confirmado')                    AS n_confirmado,
+            COUNT(*) FILTER (WHERE status = 'realizado')                     AS n_realizado,
+            COUNT(*) FILTER (WHERE status = 'cancelado')                     AS n_cancelado,
+            COALESCE(SUM(CASE
+                WHEN status IN ('confirmado','realizado')
+                  AND DATE_TRUNC('month', data) = DATE_TRUNC('month', CURRENT_DATE)
+                THEN valor_total ELSE 0 END), 0)                             AS projecao_mes
+        FROM ordens_servico
+        WHERE restaurant_id = $1
+          AND data >= $2
+    """
+    async with pool().acquire() as c:
+        row = await c.fetchrow(query, restaurant_id, inicio)
+
+    r = dict(row)
+    receita  = float(r["receita_confirmada"] or 0)
+    entradas = float(r["entradas_recebidas"] or 0)
+    return {
+        "receita_confirmada": round(receita, 2),
+        "entradas_recebidas": round(entradas, 2),
+        "saldo_pendente":     round(receita - entradas, 2),
+        "ticket_medio":       round(float(r["ticket_medio"] or 0), 2),
+        "projecao_mes":       round(float(r["projecao_mes"] or 0), 2),
+        "os_por_status": {
+            "rascunho":         int(r["n_rascunho"]),
+            "proposta_enviada": int(r["n_proposta_enviada"]),
+            "entrada_paga":     int(r["n_entrada_paga"]),
+            "confirmado":       int(r["n_confirmado"]),
+            "realizado":        int(r["n_realizado"]),
+            "cancelado":        int(r["n_cancelado"]),
+        },
+        "periodo": periodo,
+        "inicio":  inicio.isoformat(),
+    }
+
+
 # ─── Régua pós-evento ────────────────────────────────────────────
 
 async def get_os_para_regua(restaurant_id: str) -> list[dict]:
