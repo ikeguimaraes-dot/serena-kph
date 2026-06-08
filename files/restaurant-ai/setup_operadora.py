@@ -17,10 +17,14 @@ from typing import Optional
 SUPABASE_URL = "https://fgntcrxuhfwcauvahaiz.supabase.co"
 SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
 
-USER_EMAIL = "operadora@madonna.com.br"
-USER_PASSWORD = "madonna@2026"
-USER_NOME = "Operadora Madonna"
+USER_EMAIL = os.environ.get("SETUP_USER_EMAIL", "operadora@madonna.com.br")
+USER_PASSWORD = os.environ.get("SETUP_USER_PASSWORD", "")  # obrigatório — não hardcode senha
+USER_NOME = os.environ.get("SETUP_USER_NOME", "Operadora Madonna")
 USER_ROLE = "atendente"
+
+if not USER_PASSWORD:
+    print("ERRO: defina SETUP_USER_PASSWORD antes de rodar este script.")
+    sys.exit(1)
 
 if not SERVICE_KEY:
     print("ERRO: defina SUPABASE_SERVICE_KEY antes de rodar este script.")
