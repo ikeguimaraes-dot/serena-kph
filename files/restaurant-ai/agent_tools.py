@@ -2,7 +2,6 @@
 
 from datetime import datetime
 import tools as tool_fns
-import tagme_handlers
 import database as db
 
 
