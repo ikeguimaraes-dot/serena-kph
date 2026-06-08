@@ -140,7 +140,10 @@ async def validate_twilio_signature(
 
     auth_token = os.environ.get("TWILIO_AUTH_TOKEN", "")
     if not auth_token or auth_token.startswith("..."):
-        print("[WEBHOOK] TWILIO_AUTH_TOKEN ausente — validação HMAC ignorada (dev)")
+        is_prod = os.environ.get("RAILWAY_ENVIRONMENT", "") == "production"
+        if is_prod:
+            raise HTTPException(status_code=503, detail="TWILIO_AUTH_TOKEN não configurado em produção")
+        print("[WEBHOOK] TWILIO_AUTH_TOKEN ausente — validação HMAC ignorada (dev/local)")
         return
 
     if not x_twilio_signature:
@@ -354,7 +357,7 @@ async def update_reservation(res_id: str, data: ReservationUpdate):
 # HANDOFF — atendimento humano
 # ════════════════════════════════════════════════════════════════
 
-@app.get("/api/restaurants/{rid}/handoff")
+@app.get("/api/restaurants/{rid}/handoff", dependencies=[Depends(require_admin)])
 async def list_handoff(rid: str, status: Optional[str]=None):
     return await db.get_handoff_sessions(rid, status)
 
@@ -576,11 +579,11 @@ async def deletar_reserva(restaurant_id: str, reserva_id: str):
 # CONVERSAS
 # ════════════════════════════════════════════════════════════════
 
-@app.get("/api/restaurants/{rid}/conversations")
+@app.get("/api/restaurants/{rid}/conversations", dependencies=[Depends(require_admin)])
 async def list_conversations(rid: str):
     return await db.get_conversations_list(rid)
 
-@app.get("/api/conversations/{user_phone}")
+@app.get("/api/conversations/{user_phone}", dependencies=[Depends(require_admin)])
 async def get_conversation(user_phone: str, rid: str):
     return await db.get_history(user_phone, rid, limit=100)
 
@@ -638,7 +641,7 @@ async def upsert_contact(data: ContactUpsert):
     """Cria ou atualiza contato pelo celular (upsert)."""
     return await db.upsert_contact(data.model_dump(exclude_none=False))
 
-@app.get("/api/contacts")
+@app.get("/api/contacts", dependencies=[Depends(require_admin)])
 async def list_contacts(
     tier: Optional[str] = None,
     estagio: Optional[str] = None,
@@ -652,15 +655,15 @@ async def list_contacts(
         tag=tag, opt_in=opt_in, limit=limit,
     )
 
-@app.get("/api/contacts/search")
+@app.get("/api/contacts/search", dependencies=[Depends(require_admin)])
 async def search_contacts(q: str, limit: int = 50):
     return await db.search_contacts(q, limit=limit)
 
-@app.get("/api/contacts/stats")
+@app.get("/api/contacts/stats", dependencies=[Depends(require_admin)])
 async def contact_stats():
     return await db.contact_stats()
 
-@app.get("/api/contacts/funil-stats")
+@app.get("/api/contacts/funil-stats", dependencies=[Depends(require_admin)])
 async def funil_stats():
     """KPIs do funil comercial: leads/semana, score breakdown, metas."""
     return await db.get_funil_stats()
@@ -671,18 +674,18 @@ async def contacts_mark_inactive(threshold_days: int = 45):
     affected = await db.mark_inactive_contacts(threshold_days)
     return {"affected": affected}
 
-@app.get("/api/contacts/{celular}")
+@app.get("/api/contacts/{celular}", dependencies=[Depends(require_admin)])
 async def get_contact(celular: str):
     c = await db.get_contact(celular)
     if not c:
         raise HTTPException(404, "Contato não encontrado")
     return c
 
-@app.get("/api/contacts/{celular}/reservations")
+@app.get("/api/contacts/{celular}/reservations", dependencies=[Depends(require_admin)])
 async def contact_reservations(celular: str, limit: int = 20):
     return await db.get_contact_reservations(celular, limit=limit)
 
-@app.get("/api/contacts/{celular}/conversations")
+@app.get("/api/contacts/{celular}/conversations", dependencies=[Depends(require_admin)])
 async def contact_conversations(celular: str, limit: int = 100):
     return await db.get_contact_conversations(celular, limit=limit)
 
@@ -694,7 +697,7 @@ async def patch_contact(celular: str, data: ContactUpdate):
         raise HTTPException(404)
     return c
 
-@app.patch("/api/contacts/{celular}/kanban")
+@app.patch("/api/contacts/{celular}/kanban", dependencies=[Depends(require_admin)])
 async def move_kanban(celular: str, data: ContactKanbanMove):
     try:
         c = await db.move_contact_kanban(celular, data.estagio_kanban)
@@ -705,7 +708,7 @@ async def move_kanban(celular: str, data: ContactKanbanMove):
     return c
 
 
-@app.get("/api/contacts/{celular}/profile")
+@app.get("/api/contacts/{celular}/profile", dependencies=[Depends(require_admin)])
 async def contact_profile(celular: str, limit: int = 50):
     """Perfil combinado: dados do contato + últimas mensagens."""
     contact = await db.get_contact(celular)
@@ -746,7 +749,7 @@ def _periodo_to_days(periodo: str) -> int:
         except ValueError: return 7
     return 7
 
-@app.get("/api/serena/metrics")
+@app.get("/api/serena/metrics", dependencies=[Depends(require_admin)])
 async def serena_metrics(periodo: str = "7d"):
     days = _periodo_to_days(periodo)
     agent_id = os.environ.get("AGENT_NAME")
@@ -782,13 +785,13 @@ async def serena_tools(periodo: str = "30d"):
     rid = agent_id.lower().strip() if agent_id else None
     return await db.serena_tools_stats(_periodo_to_days(periodo), restaurant_id=rid)
 
-@app.get("/api/serena/custo")
+@app.get("/api/serena/custo", dependencies=[Depends(require_admin)])
 async def serena_custo(periodo: str = "mtd"):
     agent_id = os.environ.get("AGENT_NAME")
     rid = agent_id.lower().strip() if agent_id else None
     return await db.serena_custo(_periodo_to_days(periodo), restaurant_id=rid)
 
-@app.get("/api/serena/recent")
+@app.get("/api/serena/recent", dependencies=[Depends(require_admin)])
 async def serena_recent(limit: int = 100, only_handoffs: bool = False):
     agent_id = os.environ.get("AGENT_NAME")
     rid = agent_id.lower().strip() if agent_id else None
@@ -1211,7 +1214,7 @@ async def generate_weekly_report(dias: int = 7):
     import serena_weekly
     return await serena_weekly.generate_weekly_report(dias=dias)
 
-@app.get("/api/serena/weekly-report")
+@app.get("/api/serena/weekly-report", dependencies=[Depends(require_admin)])
 async def list_weekly_reports():
     return await db.list_weekly_reports()
 
