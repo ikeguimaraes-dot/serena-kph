@@ -1793,7 +1793,7 @@ async def registrar_nps(os_id: str, nota: int) -> None:
                        SELECT cliente_phone FROM ordens_servico WHERE id = $1
                    ) AND status = 'realizado'
                )
-               WHERE telefone = (
+               WHERE celular = (
                    SELECT cliente_phone FROM ordens_servico WHERE id = $1
                )""",
             os_id
