@@ -1065,8 +1065,8 @@ async def seed_prompt_v1():
 # ORKESTRI — Executor de propostas de aprendizado
 # ════════════════════════════════════════════════════════════════
 
-async def _executar_proposta(proposta: dict) -> dict:
-    """Aplica uma proposta de aprendizado aprovada ao prompt ativo.
+async def _executar_proposta(proposta: dict, restaurant_id: str = "madonna_cucina") -> dict:
+    """Aplica uma proposta de aprendizado aprovada ao prompt ativo do restaurante.
 
     Tipos suportados:
       faq          → anexa bloco FAQ ao final do prompt
@@ -1079,16 +1079,15 @@ async def _executar_proposta(proposta: dict) -> dict:
     proposta_id = proposta["id"]
     titulo = proposta.get("titulo") or proposta.get("proposta", "")[:60]
     conteudo = proposta.get("proposta", "")
-    contexto = proposta.get("contexto") or {}
 
     # Tipos sem alteração de prompt
     if tipo in ("integracao", "treino"):
         return {"executado": False, "motivo": f"tipo '{tipo}' não requer alteração de prompt"}
 
-    # Busca prompt ativo
-    ativo = await db.get_active_prompt()
+    # Busca prompt ativo do restaurante correto
+    ativo = await db.get_active_prompt(restaurant_id)
     if not ativo:
-        return {"executado": False, "motivo": "Nenhum prompt ativo encontrado"}
+        return {"executado": False, "motivo": f"Nenhum prompt ativo para {restaurant_id}"}
 
     prompt_base = ativo["prompt_completo"]
     versao_base = ativo["versao"]
@@ -1105,25 +1104,30 @@ async def _executar_proposta(proposta: dict) -> dict:
 
     novo_prompt = prompt_base + bloco
 
-    # Gera próximo número de versão  (ex: "v5" → "v6")
+    # Gera próximo número de versão (ex: "v5" → "v6")
     import re as _re
     nums = _re.findall(r"\d+", str(versao_base))
     prox = int(nums[-1]) + 1 if nums else 1
     nova_versao = f"v{prox}"
 
-    # Insere nova versão ativa com referência à proposta
+    # Insere nova versão ativa — desativa apenas o prompt DO MESMO restaurante
     async with db.pool().acquire() as c:
         async with c.transaction():
-            await c.execute("UPDATE serena_prompt_versions SET ativa=FALSE WHERE ativa=TRUE")
+            await c.execute(
+                "UPDATE serena_prompt_versions SET ativa=FALSE "
+                "WHERE ativa=TRUE AND restaurant_id=$1",
+                restaurant_id,
+            )
             row = await c.fetchrow("""
                 INSERT INTO serena_prompt_versions
-                  (versao, prompt_completo, changelog, ativa, proposta_id, aprovado_por)
-                VALUES ($1, $2, $3, TRUE, $4, $5) RETURNING id""",
+                  (versao, prompt_completo, changelog, ativa, proposta_id, aprovado_por, restaurant_id)
+                VALUES ($1, $2, $3, TRUE, $4, $5, $6) RETURNING id""",
                 nova_versao,
                 novo_prompt,
                 f"Executado automaticamente — proposta #{proposta_id} ({tipo}): {titulo}",
                 proposta_id,
                 "admin",
+                restaurant_id,
             )
     db._prompt_cache_clear()
     return {

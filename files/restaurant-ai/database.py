@@ -909,20 +909,29 @@ def _prompt_cache_clear():
     _prompt_cache_at = 0.0
 
 
-async def get_active_prompt() -> Optional[dict]:
-    """Retorna a versão ATIVA do prompt da Serena. Cache 5min."""
+async def get_active_prompt(restaurant_id: str = "madonna_cucina") -> Optional[dict]:
+    """Retorna a versão ATIVA do prompt para o restaurante. Cache 5min por restaurant_id."""
     global _prompt_cache, _prompt_cache_at
-    if _prompt_cache and (_time.monotonic() - _prompt_cache_at) < _PROMPT_TTL:
+    # Cache key inclui restaurant_id
+    cache_key = restaurant_id
+    if (
+        isinstance(_prompt_cache, dict)
+        and _prompt_cache.get("_cache_rid") == cache_key
+        and (_time.monotonic() - _prompt_cache_at) < _PROMPT_TTL
+    ):
         return _prompt_cache
     async with pool().acquire() as c:
         row = await c.fetchrow(
-            "SELECT id, versao, prompt_completo, criado_em "
-            "FROM serena_prompt_versions WHERE ativa=TRUE LIMIT 1"
+            "SELECT id, versao, prompt_completo, restaurant_id, criado_em "
+            "FROM serena_prompt_versions WHERE ativa=TRUE AND restaurant_id=$1 LIMIT 1",
+            restaurant_id,
         )
     if row:
-        _prompt_cache = dict(row)
+        cached = dict(row)
+        cached["_cache_rid"] = cache_key
+        _prompt_cache = cached
         _prompt_cache_at = _time.monotonic()
-        return _prompt_cache
+        return cached
     return None
 
 
