@@ -19,15 +19,26 @@ import os, re, asyncio, time, anthropic
 _DIA_NAMORADOS_PATTERNS = [
     r"12.?06", r"dia dos namorados", r"namorados", r"12 de junho", r"junho.*12"
 ]
-_MSG_NAMORADOS = (
-    "O Dia dos Namorados é uma data muito especial para nós! 🌹 "
-    "Vou te conectar com nossa equipe para garantir que tudo fique "
-    "perfeito para você e sua pessoa especial."
+_MSG_NAMORADOS_CONCIERGE = (
+    "O Dia dos Namorados é uma das nossas noites mais especiais do ano. "
+    "Para garantir que tudo fique perfeito, nossa concierge entrará em "
+    "contato com você pessoalmente com todas as informações e disponibilidade. "
+    "Posso registrar seu nome para a lista?"
 )
+_MSG_NAMORADOS_CONFIRMACAO = "Perfeito, {nome}. Nossa concierge entrará em contato em breve."
 
 def _mensagem_e_namorados(texto: str) -> bool:
     t = texto.lower()
     return any(re.search(p, t) for p in _DIA_NAMORADOS_PATTERNS)
+
+def _em_captura_nome_namorados(history: list) -> bool:
+    """Retorna True se o último turno do assistente foi o prompt de captura de nome."""
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            return _MSG_NAMORADOS_CONCIERGE in msg.get("content", "")
+        if msg.get("role") == "user":
+            break
+    return False
 from datetime import datetime
 import database as db
 from agent_prompt import build_prompt, _FALLBACK_BODY
@@ -231,20 +242,37 @@ class RestaurantAgent:
             return None
 
         # Interceptor hardcoded — 12/06 nunca chega no LLM
-        if _mensagem_e_namorados(message):
-            print(f"[AGENT] Interceptor 12/06 acionado user={user_phone!r}")
-            hid = await db.create_handoff(user_phone, rid, "Reserva Dia dos Namorados (12/06)")
+        history_pre = await db.get_history(user_phone, rid, MAX_HISTORY)
+
+        # Estado 2: cliente respondeu com nome após o prompt de captura
+        if _em_captura_nome_namorados(history_pre):
+            nome = message.strip().split()[0].capitalize() if message.strip() else "você"
+            confirmacao = _MSG_NAMORADOS_CONFIRMACAO.format(nome=nome)
+            hid = await db.create_handoff(
+                user_phone, rid,
+                f"Lead Dia dos Namorados (12/06) — nome: {nome}"
+            )
             team = await db.get_on_duty_team(rid)
             if team:
                 import notifications as notif_handoff
                 for m in team[:2]:
                     notif_handoff.notify_handoff(
                         m["whatsapp"], restaurant["nome"],
-                        user_phone, "Reserva Dia dos Namorados (12/06)", message
+                        user_phone,
+                        f"Lead Dia dos Namorados — nome: {nome}",
+                        message,
                     )
             await db.save_message(user_phone, rid, "user", message)
-            await db.save_message(user_phone, rid, "assistant", _MSG_NAMORADOS)
-            return _MSG_NAMORADOS
+            await db.save_message(user_phone, rid, "assistant", confirmacao)
+            print(f"[AGENT] Namorados lead capturado nome={nome!r} hid={hid} user={user_phone!r}")
+            return confirmacao
+
+        # Estado 1: primeira menção ao Dia dos Namorados — pede nome, sem handoff ainda
+        if _mensagem_e_namorados(message):
+            print(f"[AGENT] Interceptor 12/06 acionado user={user_phone!r}")
+            await db.save_message(user_phone, rid, "user", message)
+            await db.save_message(user_phone, rid, "assistant", _MSG_NAMORADOS_CONCIERGE)
+            return _MSG_NAMORADOS_CONCIERGE
 
         history = await db.get_history(user_phone, rid, MAX_HISTORY)
         history.append({"role":"user","content":message})
