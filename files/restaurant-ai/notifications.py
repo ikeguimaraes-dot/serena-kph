@@ -55,8 +55,8 @@ def notify_handoff(
 def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     """Envia mensagem do atendente para o cliente via Twilio.
 
-    Usa TWILIO_FROM_NUMBER (sender autorizado na Twilio) como remetente.
-    Cai em restaurant_number só se TWILIO_FROM_NUMBER não estiver configurado.
+    Usa restaurant_number como remetente (número que recebeu a mensagem do cliente).
+    Fallback para TWILIO_FROM_NUMBER apenas quando restaurant_number estiver vazio.
 
     Lança exceção em caso de falha — callers decidem como tratar:
       - _process_and_reply (background): captura e loga
@@ -66,7 +66,7 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     if not client:
         print(f"[MSG → {customer_phone}] (Twilio não configurado): {message[:80]}")
         return
-    raw_sender = os.environ.get("TWILIO_FROM_NUMBER") or restaurant_number
+    raw_sender = restaurant_number or os.environ.get("TWILIO_FROM_NUMBER", "")
     # Normaliza: remove "whatsapp:" prefix se já estiver no env var
     sender = raw_sender.replace("whatsapp:", "").strip()
     # Normaliza: garante formato E.164 no destinatário
