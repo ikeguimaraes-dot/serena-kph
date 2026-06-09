@@ -887,7 +887,7 @@ async def _job_regua_pos_evento(restaurant_id: str):
         delta = agora - realizado
 
         _twilio = notif._client()
-        _from   = f"whatsapp:{os.environ.get('TWILIO_FROM_NUMBER') or restaurant_phone}"
+        _from   = f"whatsapp:{restaurant_phone or os.environ.get('TWILIO_FROM_NUMBER', '')}"
         _to     = f"whatsapp:{telefone}"
         _vars   = json.dumps({"1": nome, "2": titulo})
 
