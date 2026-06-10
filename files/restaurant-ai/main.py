@@ -1450,6 +1450,12 @@ async def recalcular_ltv(rid: str):
     return resultado
 
 
+@app.get("/api/restaurants/{rid}/reports/pipeline", dependencies=[Depends(require_admin)])
+async def get_pipeline(rid: str):
+    """Pipeline comercial: funil OS por status com valores + reservas do mês."""
+    return await db.get_pipeline_report(rid)
+
+
 # ════════════════════════════════════════════════════════════════
 # WIDGET DE RESERVA — endpoint público com rate limiting
 # ════════════════════════════════════════════════════════════════
