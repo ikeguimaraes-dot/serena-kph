@@ -1721,6 +1721,88 @@ async def get_financeiro_resumo(restaurant_id: str, periodo: str = "mes") -> dic
     }
 
 
+# ─── Pipeline comercial ──────────────────────────────────────────
+
+async def get_pipeline_report(restaurant_id: str) -> dict:
+    """Pipeline comercial: funil OS por status com valores + reservas do mês."""
+    async with pool().acquire() as c:
+        # OS: agrupado por status com valor total
+        os_rows = await c.fetch("""
+            SELECT
+                status,
+                COUNT(*)                        AS quantidade,
+                COALESCE(SUM(valor_total), 0)   AS valor_total,
+                COALESCE(AVG(valor_total), 0)   AS ticket_medio
+            FROM ordens_servico
+            WHERE restaurant_id = $1
+              AND status NOT IN ('cancelado')
+            GROUP BY status
+            ORDER BY CASE status
+                WHEN 'rascunho'          THEN 1
+                WHEN 'proposta_enviada'  THEN 2
+                WHEN 'entrada_paga'      THEN 3
+                WHEN 'confirmado'        THEN 4
+                WHEN 'realizado'         THEN 5
+                ELSE 6 END
+        """, restaurant_id)
+
+        # Reservas do mês atual por status
+        res_rows = await c.fetch("""
+            SELECT
+                status,
+                COUNT(*)                                AS quantidade,
+                COALESCE(SUM(pagamento_valor), 0)       AS valor_pago,
+                COALESCE(AVG(posicoes), 0)              AS pax_medio
+            FROM reservas
+            WHERE restaurant_id = $1
+              AND DATE_TRUNC('month', data) = DATE_TRUNC('month', CURRENT_DATE)
+            GROUP BY status
+            ORDER BY status
+        """, restaurant_id)
+
+        # Totais pipeline OS
+        totais = await c.fetchrow("""
+            SELECT
+                COALESCE(SUM(CASE WHEN status IN ('proposta_enviada','entrada_paga','confirmado')
+                    THEN valor_total ELSE 0 END), 0)    AS pipeline_aberto,
+                COALESCE(SUM(CASE WHEN status = 'realizado'
+                    THEN valor_total ELSE 0 END), 0)    AS receita_realizada,
+                COUNT(*) FILTER (WHERE status NOT IN ('cancelado','realizado')) AS os_ativas
+            FROM ordens_servico
+            WHERE restaurant_id = $1
+        """, restaurant_id)
+
+    os_funil = [
+        {
+            "status": r["status"],
+            "quantidade": int(r["quantidade"]),
+            "valor_total": round(float(r["valor_total"]), 2),
+            "ticket_medio": round(float(r["ticket_medio"]), 2),
+        }
+        for r in os_rows
+    ]
+
+    reservas_mes = [
+        {
+            "status": r["status"],
+            "quantidade": int(r["quantidade"]),
+            "valor_pago": round(float(r["valor_pago"]), 2),
+            "pax_medio": round(float(r["pax_medio"]), 1),
+        }
+        for r in res_rows
+    ]
+
+    return {
+        "os_funil": os_funil,
+        "reservas_mes": reservas_mes,
+        "resumo": {
+            "pipeline_aberto_brl": round(float(totais["pipeline_aberto"]), 2),
+            "receita_realizada_brl": round(float(totais["receita_realizada"]), 2),
+            "os_ativas": int(totais["os_ativas"]),
+        },
+    }
+
+
 # ─── Régua pós-evento ────────────────────────────────────────────
 
 async def get_os_para_regua(restaurant_id: str) -> list[dict]:
