@@ -478,6 +478,65 @@ async def is_in_handoff(user_phone: str, rid: str) -> bool:
     return row is not None
 
 
+async def get_handoff_sla_stats(restaurant_id: str) -> dict:
+    """SLA de handoff: tempo médio de resposta, vencidos (>2h) e abertos."""
+    async with pool().acquire() as c:
+        stats = await c.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE status IN ('aguardando','em_atendimento'))      AS abertos,
+                COUNT(*) FILTER (
+                    WHERE status IN ('aguardando','em_atendimento')
+                      AND created_at < NOW() - INTERVAL '2 hours'
+                )                                                                       AS vencidos,
+                ROUND(AVG(
+                    EXTRACT(EPOCH FROM (resolved_at - created_at)) / 60
+                ) FILTER (WHERE resolved_at IS NOT NULL), 1)                           AS tma_minutos,
+                COUNT(*) FILTER (WHERE resolved_at IS NOT NULL)                        AS resolvidos_total,
+                COUNT(*) FILTER (
+                    WHERE resolved_at IS NOT NULL
+                      AND resolved_at - created_at <= INTERVAL '2 hours'
+                )                                                                       AS dentro_sla
+            FROM handoff_sessions
+            WHERE restaurant_id = $1
+        """, restaurant_id)
+
+        vencidos_rows = await c.fetch("""
+            SELECT id, user_phone, motivo, created_at,
+                   ROUND(EXTRACT(EPOCH FROM (NOW() - created_at)) / 60)::int AS minutos_aberto
+            FROM handoff_sessions
+            WHERE restaurant_id = $1
+              AND status IN ('aguardando','em_atendimento')
+              AND created_at < NOW() - INTERVAL '2 hours'
+            ORDER BY created_at ASC
+            LIMIT 10
+        """, restaurant_id)
+
+    abertos       = int(stats["abertos"] or 0)
+    vencidos_n    = int(stats["vencidos"] or 0)
+    resolvidos    = int(stats["resolvidos_total"] or 0)
+    dentro_sla    = int(stats["dentro_sla"] or 0)
+    tma           = float(stats["tma_minutos"] or 0)
+    taxa_sla      = round((dentro_sla / resolvidos * 100) if resolvidos > 0 else 0, 1)
+
+    return {
+        "abertos": abertos,
+        "vencidos": vencidos_n,
+        "tma_minutos": tma,
+        "taxa_sla_pct": taxa_sla,
+        "resolvidos_total": resolvidos,
+        "handoffs_vencidos": [
+            {
+                "id": r["id"],
+                "user_phone": r["user_phone"],
+                "motivo": r["motivo"],
+                "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                "minutos_aberto": int(r["minutos_aberto"] or 0),
+            }
+            for r in vencidos_rows
+        ],
+    }
+
+
 # ── Equipe ────────────────────────────────────────────────────
 
 async def get_team(rid: str) -> list[dict]:

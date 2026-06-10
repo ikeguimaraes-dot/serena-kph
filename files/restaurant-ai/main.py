@@ -1456,6 +1456,12 @@ async def get_pipeline(rid: str):
     return await db.get_pipeline_report(rid)
 
 
+@app.get("/api/restaurants/{rid}/handoff/sla-stats", dependencies=[Depends(require_admin)])
+async def get_handoff_sla(rid: str):
+    """SLA de handoff: abertos, vencidos (>2h), TMA e taxa dentro do SLA."""
+    return await db.get_handoff_sla_stats(rid)
+
+
 # ════════════════════════════════════════════════════════════════
 # WIDGET DE RESERVA — endpoint público com rate limiting
 # ════════════════════════════════════════════════════════════════
