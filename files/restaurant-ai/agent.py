@@ -16,18 +16,74 @@ Sprint C2: agent.py refatorado em 4 módulos:
 import os, re, asyncio, time, anthropic
 
 # ── Interceptor hardcoded: Dia dos Namorados 12/06 ─────────────
+#
+# REGRA: qualquer menção a 12/06 ou "namorados" — em QUALQUER
+# mensagem ou no histórico recente — NUNCA chega à LLM nem às tools
+# de reserva/proposta. Resposta única: captura de lead para concierge.
+#
 _DIA_NAMORADOS_PATTERNS = [
-    r"12.?06", r"dia dos namorados", r"namorados", r"12 de junho", r"junho.*12"
+    r"12[\/\-\.]?06",      # 12/06, 12-06, 12.06, 1206
+    r"dia dos namorados",
+    r"\bnamorados?\b",     # "namorado", "namorados"
+    r"12 de junho",
+    r"junho.{0,5}12",      # "junho dia 12", "junho, 12"
+    r"menu.{0,20}junho",   # "menu de junho", "menu especial de junho"
+    r"junho.{0,20}menu",   # "junho tem menu especial?"
 ]
-_MSG_NAMORADOS = (
-    "O Dia dos Namorados é uma data muito especial para nós! 🌹 "
-    "Vou te conectar com nossa equipe para garantir que tudo fique "
-    "perfeito para você e sua pessoa especial."
+
+_MSG_NAMORADOS_CONCIERGE = (
+    "O Dia dos Namorados é uma das nossas noites mais especiais do ano. "
+    "Para garantir que tudo fique perfeito, nossa concierge entrará em "
+    "contato com você pessoalmente com todas as informações e disponibilidade. "
+    "Posso registrar seu nome para a lista?"
 )
+_MSG_NAMORADOS_CONFIRMACAO = (
+    "Perfeito, {nome}. Nossa concierge entrará em contato em breve."
+)
+
+# Ferramenta bloqueadas para 12/06 — mesmo se a LLM tentar chamá-las
+_TOOLS_BLOQUEADAS_NAMORADOS = {"fazer_reserva", "gerar_proposta", "verificar_disponibilidade"}
+
+# Data hard-block (YYYY-MM-DD) — bloqueia na camada de tools
+_DATA_NAMORADOS = "2026-06-12"
+
 
 def _mensagem_e_namorados(texto: str) -> bool:
     t = texto.lower()
     return any(re.search(p, t) for p in _DIA_NAMORADOS_PATTERNS)
+
+
+def _historico_tem_namorados(history: list) -> bool:
+    """Retorna True se qualquer mensagem recente do histórico menciona namorados.
+    Verifica as últimas 6 mensagens para detectar contexto ativo.
+    """
+    for msg in history[-6:]:
+        content = msg.get("content", "")
+        if isinstance(content, str) and _mensagem_e_namorados(content):
+            return True
+    return False
+
+
+def _em_captura_nome_namorados(history: list) -> bool:
+    """Retorna True se a última mensagem do assistente foi a pergunta de captura de nome."""
+    for msg in reversed(history):
+        if msg.get("role") == "assistant":
+            return _MSG_NAMORADOS_CONCIERGE in msg.get("content", "")
+        if msg.get("role") == "user":
+            break
+    return False
+
+
+def _tool_e_bloqueada_namorados(name: str, inputs: dict) -> bool:
+    """Retorna True se a tool deve ser bloqueada por ser sobre 12/06."""
+    if name not in _TOOLS_BLOQUEADAS_NAMORADOS:
+        return False
+    data_arg = inputs.get("data", "") or ""
+    # Bloqueia se data é 12/06 OU se qualquer input menciona namorados
+    if _DATA_NAMORADOS in str(data_arg):
+        return True
+    return any(_mensagem_e_namorados(str(v)) for v in inputs.values())
+
 from datetime import datetime
 import database as db
 from agent_prompt import build_prompt, _FALLBACK_BODY
@@ -230,23 +286,47 @@ class RestaurantAgent:
             await db.save_message(user_phone, rid, "user", message)
             return None
 
-        # Interceptor hardcoded — 12/06 nunca chega no LLM
-        if _mensagem_e_namorados(message):
-            print(f"[AGENT] Interceptor 12/06 acionado user={user_phone!r}")
-            hid = await db.create_handoff(user_phone, rid, "Reserva Dia dos Namorados (12/06)")
-            team = await db.get_on_duty_team(rid)
-            if team:
-                import notifications as notif_handoff
-                for m in team[:2]:
-                    notif_handoff.notify_handoff(
-                        m["whatsapp"], restaurant["nome"],
-                        user_phone, "Reserva Dia dos Namorados (12/06)", message
-                    )
-            await db.save_message(user_phone, rid, "user", message)
-            await db.save_message(user_phone, rid, "assistant", _MSG_NAMORADOS)
-            return _MSG_NAMORADOS
+        # ── Interceptor 12/06 — NUNCA chega à LLM nem às tools ──────
+        # Carrega histórico ANTES do interceptor para detectar contexto.
+        history_pre = await db.get_history(user_phone, rid, MAX_HISTORY)
 
-        history = await db.get_history(user_phone, rid, MAX_HISTORY)
+        _trigger_namorados = (
+            _mensagem_e_namorados(message)
+            or _historico_tem_namorados(history_pre)
+        )
+
+        if _trigger_namorados:
+            # Estado 2: assistente já perguntou o nome → captura e cria handoff
+            if _em_captura_nome_namorados(history_pre):
+                nome = message.strip().split()[0].capitalize() if message.strip() else "você"
+                confirmacao = _MSG_NAMORADOS_CONFIRMACAO.format(nome=nome)
+                motivo = f"Lead Dia dos Namorados (12/06) — nome: {nome}"
+                hid = await db.create_handoff(user_phone, rid, motivo)
+                print(f"[AGENT] Interceptor 12/06 Estado-2 nome={nome!r} hid={hid} user={user_phone!r}")
+                team = await db.get_on_duty_team(rid)
+                if team:
+                    import notifications as notif_handoff
+                    for m in team[:2]:
+                        notif_handoff.notify_handoff(
+                            m["whatsapp"], restaurant["nome"],
+                            user_phone, motivo,
+                            "\n".join(
+                                f"{x['role']}: {x['content']}"
+                                for x in history_pre[-4:]
+                                if isinstance(x.get("content"), str)
+                            )
+                        )
+                await db.save_message(user_phone, rid, "user", message)
+                await db.save_message(user_phone, rid, "assistant", confirmacao)
+                return confirmacao
+
+            # Estado 1: primeira menção — pergunta o nome (sem handoff ainda)
+            print(f"[AGENT] Interceptor 12/06 Estado-1 user={user_phone!r}")
+            await db.save_message(user_phone, rid, "user", message)
+            await db.save_message(user_phone, rid, "assistant", _MSG_NAMORADOS_CONCIERGE)
+            return _MSG_NAMORADOS_CONCIERGE
+
+        history = history_pre
         history.append({"role":"user","content":message})
 
         system, prompt_versao_id = await build_prompt(restaurant, user_phone=user_phone)
@@ -345,7 +425,16 @@ class RestaurantAgent:
                 for b in response.content:
                     if b.type == "tool_use":
                         tools_called.append(b.name)
-                        res = await execute_tool(b.name, b.input, user_phone, rid)
+                        # Segunda linha de defesa: bloqueia tools de reserva/proposta
+                        # se a LLM tentar usar 12/06 apesar do interceptor.
+                        if _tool_e_bloqueada_namorados(b.name, b.input):
+                            print(f"[AGENT] BLOQUEADO tool={b.name!r} inputs={b.input!r} — dia dos namorados")
+                            res = (
+                                "Esta data não está disponível para reservas online. "
+                                "Nossa concierge entrará em contato pessoalmente."
+                            )
+                        else:
+                            res = await execute_tool(b.name, b.input, user_phone, rid)
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})
                 continue
