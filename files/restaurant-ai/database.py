@@ -1767,6 +1767,78 @@ async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
         )
 
 
+async def _recalcular_ltv_contato(c, celular: str) -> None:
+    """Recalcula ltv_total e total_eventos de um único contato (conexão reutilizada).
+
+    LTV = SUM(reservas pagas) + SUM(OS realizadas)
+    total_eventos = COUNT(reservas confirmadas/pagas) + COUNT(OS realizadas)
+    """
+    await c.execute(
+        """UPDATE contacts
+           SET ltv_total = (
+               COALESCE((
+                   SELECT SUM(r.pagamento_valor)
+                   FROM reservas r
+                   WHERE r.cliente_phone = $1
+                     AND r.pagamento_status = 'pago'
+               ), 0)
+               +
+               COALESCE((
+                   SELECT SUM(o.valor_total)
+                   FROM ordens_servico o
+                   WHERE o.cliente_phone = $1
+                     AND o.status = 'realizado'
+               ), 0)
+           ),
+           total_eventos = (
+               COALESCE((
+                   SELECT COUNT(*)
+                   FROM reservas r
+                   WHERE r.cliente_phone = $1
+                     AND r.status IN ('confirmada', 'realizada')
+               ), 0)
+               +
+               COALESCE((
+                   SELECT COUNT(*)
+                   FROM ordens_servico o
+                   WHERE o.cliente_phone = $1
+                     AND o.status = 'realizado'
+               ), 0)
+           )
+           WHERE celular = $1""",
+        celular
+    )
+
+
+async def recalcular_ltv(restaurant_id: str) -> dict:
+    """Recalcula ltv_total e total_eventos de todos os contatos associados ao restaurante.
+
+    Retorna {contatos_atualizados, ltv_total_brl}.
+    """
+    async with pool().acquire() as c:
+        # Contatos que interagiram com o restaurante via reservas OU OS
+        rows = await c.fetch(
+            """SELECT DISTINCT celular FROM contacts
+               WHERE celular IN (
+                   SELECT DISTINCT cliente_phone FROM reservas   WHERE restaurant_id = $1
+                   UNION
+                   SELECT DISTINCT cliente_phone FROM ordens_servico WHERE restaurant_id = $1
+               )""",
+            restaurant_id
+        )
+        contatos = [r["celular"] for r in rows]
+        for celular in contatos:
+            await _recalcular_ltv_contato(c, celular)
+
+        total = await c.fetchval(
+            """SELECT COALESCE(SUM(ltv_total), 0)
+               FROM contacts
+               WHERE celular = ANY($1::text[])""",
+            contatos
+        )
+    return {"contatos_atualizados": len(contatos), "ltv_total_brl": float(total or 0)}
+
+
 async def registrar_nps(os_id: str, nota: int) -> None:
     """Salva nota NPS recebida via WhatsApp."""
     async with pool().acquire() as c:
@@ -1776,28 +1848,10 @@ async def registrar_nps(os_id: str, nota: int) -> None:
                WHERE id = $2""",
             nota, os_id
         )
-        # Atualiza LTV do contato via cliente_phone
-        await c.execute(
-            """UPDATE contacts
-               SET ltv_total = (
-                   SELECT COALESCE(SUM(valor_total), 0)
-                   FROM ordens_servico
-                   WHERE cliente_phone = (
-                       SELECT cliente_phone FROM ordens_servico WHERE id = $1
-                   ) AND status = 'realizado'
-               ),
-               total_eventos = (
-                   SELECT COUNT(*)
-                   FROM ordens_servico
-                   WHERE cliente_phone = (
-                       SELECT cliente_phone FROM ordens_servico WHERE id = $1
-                   ) AND status = 'realizado'
-               )
-               WHERE celular = (
-                   SELECT cliente_phone FROM ordens_servico WHERE id = $1
-               )""",
-            os_id
-        )
+        # Recalcula LTV combinado (reservas + OS) para o cliente da OS
+        row = await c.fetchrow("SELECT cliente_phone FROM ordens_servico WHERE id = $1", os_id)
+        if row and row["cliente_phone"]:
+            await _recalcular_ltv_contato(c, row["cliente_phone"])
 
 
 async def marcar_os_realizada(os_id: str) -> None:

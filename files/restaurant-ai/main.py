@@ -1443,6 +1443,13 @@ async def get_financeiro(restaurant_id: str, periodo: str = "mes"):
     return await db.get_financeiro_resumo(restaurant_id, periodo)
 
 
+@app.post("/api/restaurants/{rid}/ltv/recalcular", dependencies=[Depends(require_admin)])
+async def recalcular_ltv(rid: str):
+    """Recalcula LTV de todos os contatos do restaurante combinando reservas + OS."""
+    resultado = await db.recalcular_ltv(rid)
+    return resultado
+
+
 # ════════════════════════════════════════════════════════════════
 # WIDGET DE RESERVA — endpoint público com rate limiting
 # ════════════════════════════════════════════════════════════════
