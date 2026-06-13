@@ -1014,27 +1014,40 @@ async def get_prompt_version(pid: int) -> Optional[dict]:
 
 
 async def insert_prompt_version(versao: str, prompt_completo: str,
+                                  restaurant_id: str,
                                   changelog: Optional[str] = None,
                                   ativar: bool = False) -> int:
+    # restaurant_id é obrigatório — desativação e ativação são SEMPRE
+    # escopadas a um restaurante para nunca derrubar prompt de outra casa.
     async with pool().acquire() as c:
         async with c.transaction():
             if ativar:
                 await c.execute(
-                    "UPDATE serena_prompt_versions SET ativa=FALSE WHERE ativa=TRUE")
+                    "UPDATE serena_prompt_versions SET ativa=FALSE "
+                    "WHERE ativa=TRUE AND restaurant_id=$1", restaurant_id)
             row = await c.fetchrow("""
                 INSERT INTO serena_prompt_versions
-                  (versao, prompt_completo, changelog, ativa)
-                VALUES ($1, $2, $3, $4) RETURNING id""",
-                versao, prompt_completo, changelog or "", ativar)
+                  (versao, prompt_completo, changelog, ativa, restaurant_id)
+                VALUES ($1, $2, $3, $4, $5) RETURNING id""",
+                versao, prompt_completo, changelog or "", ativar, restaurant_id)
     if ativar:
         _prompt_cache_clear()
     return row["id"]
 
 
 async def activate_prompt_version(pid: int) -> Optional[dict]:
+    # Desativa apenas as versões do MESMO restaurante da versão alvo,
+    # nunca todas globalmente.
     async with pool().acquire() as c:
         async with c.transaction():
-            await c.execute("UPDATE serena_prompt_versions SET ativa=FALSE")
+            target = await c.fetchrow(
+                "SELECT restaurant_id FROM serena_prompt_versions WHERE id=$1", pid)
+            if not target:
+                return None
+            await c.execute(
+                "UPDATE serena_prompt_versions SET ativa=FALSE "
+                "WHERE ativa=TRUE AND restaurant_id IS NOT DISTINCT FROM $1",
+                target["restaurant_id"])
             row = await c.fetchrow(
                 "UPDATE serena_prompt_versions SET ativa=TRUE WHERE id=$1 RETURNING *", pid)
     _prompt_cache_clear()
