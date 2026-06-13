@@ -280,8 +280,8 @@ def load_dynamic_prompt_body(r: dict) -> str:
     if not body:
         body = _FALLBACK_BODY
         
-    nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
-    nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
+    nome_agente = r.get("nome_agente") or os.environ.get("AGENT_NAME") or "Serena"
+    nome_restaurante = r.get("nome") or os.environ.get("BUSINESS_CONTEXT") or "nosso restaurante"
     
     # Formatação dinâmica dos placeholders no prompt
     body_formatted = body.replace("{nome_agente}", nome_agente).replace("{nome_restaurante}", nome_restaurante)
@@ -319,8 +319,8 @@ def _dynamic_header(r: dict, contact_block: str = "") -> str:
     contato = contact_block or "  (sem contexto de contato neste turno)"
 
     # Sprint D1 — campos dinâmicos por restaurante
-    nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
-    nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
+    nome_agente = r.get("nome_agente") or os.environ.get("AGENT_NAME") or "Serena"
+    nome_restaurante = r.get("nome") or os.environ.get("BUSINESS_CONTEXT") or "nosso restaurante"
     personalidade = (r.get("personalidade") or "").strip()
     personalidade_block = f"\nPERSONALIDADE DO RESTAURANTE\n{personalidade}\n" if personalidade else ""
 
@@ -359,11 +359,11 @@ async def build_prompt(r: dict, user_phone: str | None = None) -> tuple[str, int
         body = load_dynamic_prompt_body(r)
         pid = -1  # Identificador de versão para prompt carregado do .env
     else:
-        active = await db.get_active_prompt()
+        active = await db.get_active_prompt(r["id"])
         if active:
             body = active["prompt_completo"]
-            nome_agente = os.environ.get("AGENT_NAME") or r.get("nome_agente") or "Serena"
-            nome_restaurante = os.environ.get("BUSINESS_CONTEXT") or r.get("nome") or "nosso restaurante"
+            nome_agente = r.get("nome_agente") or os.environ.get("AGENT_NAME") or "Serena"
+            nome_restaurante = r.get("nome") or os.environ.get("BUSINESS_CONTEXT") or "nosso restaurante"
             body = body.replace("{nome_agente}", nome_agente).replace("{nome_restaurante}", nome_restaurante)
             body = body.replace("Serena", nome_agente).replace("Madonna Cucina", nome_restaurante)
             pid = active["id"]

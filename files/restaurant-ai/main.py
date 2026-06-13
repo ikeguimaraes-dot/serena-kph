@@ -961,6 +961,7 @@ class PromptCreate(BaseModel):
     prompt_completo: str
     changelog: Optional[str] = None
     ativar: bool = False
+    restaurant_id: str = "madonna_cucina"  # painel gerencia Madonna; outras casas via SQL/seed
 
 class TestMessage(BaseModel):
     message: str
@@ -1037,10 +1038,11 @@ async def create_prompt(data: PromptCreate):
     pid = await db.insert_prompt_version(
         versao=data.versao,
         prompt_completo=data.prompt_completo,
+        restaurant_id=data.restaurant_id,
         changelog=data.changelog,
         ativar=data.ativar,
     )
-    return {"id": pid, "ativa": data.ativar}
+    return {"id": pid, "ativa": data.ativar, "restaurant_id": data.restaurant_id}
 
 @app.post("/api/serena/prompts/{pid}/ativar", dependencies=[Depends(require_admin)])
 async def activate_prompt(pid: int):
@@ -1059,6 +1061,7 @@ async def seed_prompt_v1():
     pid = await db.insert_prompt_version(
         versao="v1",
         prompt_completo=_FALLBACK_BODY,
+        restaurant_id="madonna_cucina",
         changelog="Versão inicial — extraída do hardcoded em agent.py",
         ativar=True,
     )
