@@ -309,9 +309,15 @@ def _format_datas_especiais(datas: list) -> str:
     return "\n".join(lines)
 
 
+# Datas de jogo do Brasil na Copa (America/Sao_Paulo, formato YYYY-MM-DD).
+# Adicionar novas datas conforme a classificacao do Brasil avanca.
+_DIAS_JOGO_BRASIL = {"2026-06-19", "2026-06-24"}
+
+
 def _dynamic_header(r: dict, contact_block: str = "") -> str:
     """Header dinâmico — varia por restaurante. Sprint D1: nome_agente e personalidade dinâmicos."""
     now = datetime.now(pytz.timezone("America/Sao_Paulo"))
+    dia_jogo_brasil = "SIM" if now.strftime("%Y-%m-%d") in _DIAS_JOGO_BRASIL else "NAO"
     dias = ["Segunda","Terca","Quarta","Quinta","Sexta","Sabado","Domingo"]
     horarios = "\n".join(f"  {d}: {h}" for d,h in r.get("horarios",{}).items())
     faq = "\n".join(f"  {k}: {v}" for k,v in r.get("faq",{}).items())
@@ -327,6 +333,7 @@ def _dynamic_header(r: dict, contact_block: str = "") -> str:
     return f"""Voce e {nome_agente}, concierge do {nome_restaurante}, restaurante premium em Sao Paulo.
 {personalidade_block}
 DATA E HORA: {now.strftime('%d/%m/%Y %H:%M')} ({dias[now.weekday()]}) — saudacao correta agora: {get_saudacao()}
+HOJE E DIA DE JOGO DO BRASIL: {dia_jogo_brasil}
 
 RESTAURANTE
 Nome: {nome_restaurante} | Endereco: {r.get('endereco', '')}
