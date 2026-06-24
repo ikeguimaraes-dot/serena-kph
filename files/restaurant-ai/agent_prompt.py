@@ -311,7 +311,7 @@ def _format_datas_especiais(datas: list) -> str:
 
 # Datas de jogo do Brasil na Copa (America/Sao_Paulo, formato YYYY-MM-DD).
 # Adicionar novas datas conforme a classificacao do Brasil avanca.
-_DIAS_JOGO_BRASIL = {"2026-06-19", "2026-06-24"}
+_DIAS_JOGO_BRASIL = {"2026-06-19", "2026-06-24", "2026-06-29"}
 
 
 def _dynamic_header(r: dict, contact_block: str = "") -> str:
