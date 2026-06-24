@@ -140,17 +140,28 @@ RESTAURANT_UPDATABLE = {
     "horario_funcionamento", "capacidade_maxima_reserva",
     "antecedencia_minima_horas", "capacidade_total",
     "tagme_venue_id", "team_whatsapp", "ativo",
+    # Sprint 12 — config de concierge/loja (aba Minha Casa)
+    "nome_agente", "personalidade", "tom_voz", "idioma",
+    "telefone", "site", "horario_atendimento", "donts",
 }
 
 async def update_restaurant(rid: str, data: dict) -> bool:
+    import json as _json
     data = {k: v for k, v in data.items() if k in RESTAURANT_UPDATABLE}
-    fields = [f"{k}=${i+2}" for i,k in enumerate(data.keys())]
-    if not fields:
+    if not data:
         return False
+    fields, vals = [], []
+    for k, v in data.items():
+        if k == "donts":   # JSONB — serializa + cast
+            fields.append(f"{k}=${len(vals)+2}::jsonb")
+            vals.append(_json.dumps(v if v is not None else []))
+        else:
+            fields.append(f"{k}=${len(vals)+2}")
+            vals.append(v)
     async with pool().acquire() as c:
         r = await c.execute(
             f"UPDATE restaurants SET {','.join(fields)} WHERE id=$1",
-            rid, *data.values())
+            rid, *vals)
     return int(r.split()[-1]) > 0
 
 async def save_business_hours(rid: str, hours: list[dict]):
