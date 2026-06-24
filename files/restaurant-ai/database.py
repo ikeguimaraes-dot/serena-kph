@@ -253,10 +253,10 @@ async def get_recent_reservations(user_phone: str, rid: str, limit: int = 5) -> 
     Diferente de get_reservations_by_user que filtra só confirmada."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT data, hora, pessoas, status, observacoes
-            FROM reservations
-            WHERE user_phone=$1 AND restaurant_id=$2
-            ORDER BY data DESC, hora DESC
+            SELECT data, hora_inicio AS hora, posicoes AS pessoas, status, observacoes
+            FROM reservas
+            WHERE cliente_phone=$1 AND restaurant_id=$2
+            ORDER BY data DESC, hora_inicio DESC
             LIMIT $3""", user_phone, rid, int(limit))
     return [dict(r) for r in rows]
 
@@ -400,7 +400,10 @@ async def get_reservations(rid: str, data: Optional[str]=None,
         params.append(status)
     async with pool().acquire() as c:
         rows = await c.fetch(
-            f"SELECT * FROM reservations WHERE {' AND '.join(conditions)} ORDER BY data,hora",
+            f"SELECT id, cliente_phone AS user_phone, restaurant_id, cliente_nome AS nome, "
+            f"data, hora_inicio AS hora, posicoes AS pessoas, observacoes, status, criado_em AS created_at, "
+            f"pagamento_status, pagamento_valor "
+            f"FROM reservas WHERE {' AND '.join(conditions)} ORDER BY data, hora_inicio",
             *params)
     return [dict(r) for r in rows]
 
@@ -560,27 +563,27 @@ async def create_team_member(rid: str, data: dict) -> dict:
 # ── Relatórios ────────────────────────────────────────────────
 
 async def report_overview(rid: str) -> dict:
-    today = datetime.now(_TZ_SP).strftime("%Y-%m-%d")
-    month_start = datetime.now(_TZ_SP).replace(day=1).strftime("%Y-%m-%d")
+    today = datetime.now(_TZ_SP).date()
+    month_start = today.replace(day=1)
 
     async with pool().acquire() as c:
         hoje = await c.fetchval(
-            "SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND data=$2 AND status='confirmada'",
+            "SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND data=$2 AND status IN ('pendente','confirmada')",
             rid, today)
         mes = await c.fetchval(
-            "SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND data>=$2 AND status='confirmada'",
+            "SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND data>=$2 AND status IN ('pendente','confirmada')",
             rid, month_start)
         total_pessoas_hoje = await c.fetchval(
-            "SELECT COALESCE(SUM(pessoas),0) FROM reservations WHERE restaurant_id=$1 AND data=$2 AND status='confirmada'",
+            "SELECT COALESCE(SUM(posicoes),0) FROM reservas WHERE restaurant_id=$1 AND data=$2 AND status IN ('pendente','confirmada')",
             rid, today)
         handoffs_abertos = await c.fetchval(
             "SELECT COUNT(*) FROM handoff_sessions WHERE restaurant_id=$1 AND status IN ('aguardando','em_atendimento')",
             rid)
         cancelamentos_mes = await c.fetchval(
-            "SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND data>=$2 AND status='cancelada'",
+            "SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND data>=$2 AND status='cancelada'",
             rid, month_start)
         total_mes_geral = await c.fetchval(
-            "SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND data>=$2",
+            "SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND data>=$2",
             rid, month_start)
 
     taxa_cancelamento = round(cancelamentos_mes / total_mes_geral * 100, 1) if total_mes_geral else 0
@@ -596,21 +599,21 @@ async def report_overview(rid: str) -> dict:
 async def report_reservations_by_day(rid: str, days: int = 30) -> list[dict]:
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT data, COUNT(*) as total, SUM(pessoas) as pessoas,
+            SELECT data, COUNT(*) as total, SUM(posicoes) as pessoas,
                    COUNT(*) FILTER (WHERE status='cancelada') as canceladas
-            FROM reservations
+            FROM reservas
             WHERE restaurant_id=$1
-              AND created_at >= NOW() - INTERVAL '1 day' * $2
+              AND criado_em >= NOW() - INTERVAL '1 day' * $2
             GROUP BY data ORDER BY data""", rid, days)
     return [dict(r) for r in rows]
 
 async def report_peak_hours(rid: str) -> list[dict]:
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT hora, COUNT(*) as total, SUM(pessoas) as pessoas
-            FROM reservations
-            WHERE restaurant_id=$1 AND status='confirmada'
-            GROUP BY hora ORDER BY total DESC""", rid)
+            SELECT hora_inicio AS hora, COUNT(*) as total, SUM(posicoes) as pessoas
+            FROM reservas
+            WHERE restaurant_id=$1 AND status IN ('pendente','confirmada')
+            GROUP BY hora_inicio ORDER BY total DESC""", rid)
     return [dict(r) for r in rows]
 
 async def report_conversion(rid: str) -> dict:
@@ -618,7 +621,7 @@ async def report_conversion(rid: str) -> dict:
         total_conv = await c.fetchval(
             "SELECT COUNT(DISTINCT user_phone) FROM conversations WHERE restaurant_id=$1", rid)
         total_res = await c.fetchval(
-            "SELECT COUNT(DISTINCT user_phone) FROM reservations WHERE restaurant_id=$1 AND status='confirmada'", rid)
+            "SELECT COUNT(DISTINCT cliente_phone) FROM reservas WHERE restaurant_id=$1 AND status IN ('pendente','confirmada')", rid)
     taxa = round(total_res / total_conv * 100, 1) if total_conv else 0
     return {"total_conversas": total_conv, "total_clientes_com_reserva": total_res, "taxa_conversao_pct": taxa}
 
@@ -794,9 +797,9 @@ async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
             WHERE c.lead_score = 'morno'
               AND c.atualizado_em < NOW() - ($1 || ' days')::INTERVAL
               AND NOT EXISTS (
-                SELECT 1 FROM reservations rv
-                WHERE rv.user_phone = c.celular
-                  AND rv.status = 'confirmada'
+                SELECT 1 FROM reservas rv
+                WHERE rv.cliente_phone = c.celular
+                  AND rv.status IN ('pendente','confirmada')
               )
             ORDER BY c.atualizado_em ASC
             LIMIT 100
@@ -822,8 +825,11 @@ async def get_contact_reservations(celular: str, limit: int = 20) -> list[dict]:
     """Reservas históricas ligadas ao celular do contato."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT * FROM reservations WHERE user_phone=$1
-            ORDER BY created_at DESC LIMIT $2""", celular, limit)
+            SELECT id, cliente_phone AS user_phone, restaurant_id, cliente_nome AS nome,
+                   data, hora_inicio AS hora, posicoes AS pessoas, status, observacoes,
+                   pagamento_status, pagamento_valor, criado_em AS created_at
+            FROM reservas WHERE cliente_phone=$1
+            ORDER BY criado_em DESC LIMIT $2""", celular, limit)
     return [dict(r) for r in rows]
 
 
@@ -858,49 +864,49 @@ async def report_full(rid: str, days: int = 7) -> dict:
     ) = await asyncio.gather(
         p.fetchval("SELECT COUNT(*) FROM conversations WHERE restaurant_id=$1", rid),
         p.fetchval("SELECT COUNT(DISTINCT user_phone) FROM conversations WHERE restaurant_id=$1", rid),
-        p.fetchval("SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1", rid),
-        p.fetchval("SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND status='confirmada'", rid),
-        p.fetchval("SELECT COUNT(*) FROM reservations WHERE restaurant_id=$1 AND status='cancelada'", rid),
+        p.fetchval("SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1", rid),
+        p.fetchval("SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND status='confirmada'", rid),
+        p.fetchval("SELECT COUNT(*) FROM reservas WHERE restaurant_id=$1 AND status='cancelada'", rid),
         p.fetchval("SELECT COUNT(*) FROM handoff_sessions WHERE restaurant_id=$1", rid),
-        p.fetchval("SELECT COUNT(DISTINCT user_phone) FROM reservations WHERE restaurant_id=$1", rid),
+        p.fetchval("SELECT COUNT(DISTINCT cliente_phone) FROM reservas WHERE restaurant_id=$1", rid),
         p.fetchval("SELECT COUNT(DISTINCT user_phone) FROM handoff_sessions WHERE restaurant_id=$1", rid),
         p.fetchval("""
             SELECT COUNT(*) FROM (
-                SELECT user_phone FROM reservations
+                SELECT cliente_phone FROM reservas
                 WHERE restaurant_id=$1 AND status IN ('confirmada','concluida')
-                GROUP BY user_phone HAVING COUNT(*) >= 2
+                GROUP BY cliente_phone HAVING COUNT(*) >= 2
             ) x""", rid),
         p.fetchval("""
             SELECT COUNT(*) FROM conversations
             WHERE restaurant_id=$1 AND created_at >= date_trunc('month', CURRENT_DATE)""", rid),
         p.fetchval("""
-            SELECT COUNT(*) FROM reservations
-            WHERE restaurant_id=$1 AND created_at >= date_trunc('month', CURRENT_DATE)""", rid),
+            SELECT COUNT(*) FROM reservas
+            WHERE restaurant_id=$1 AND criado_em >= date_trunc('month', CURRENT_DATE)""", rid),
         p.fetchval("""
-            SELECT COUNT(*) FROM reservations
-            WHERE restaurant_id=$1 AND created_at >= date_trunc('month', CURRENT_DATE)
+            SELECT COUNT(*) FROM reservas
+            WHERE restaurant_id=$1 AND criado_em >= date_trunc('month', CURRENT_DATE)
               AND status='cancelada'""", rid),
         p.fetchval("""
             SELECT COUNT(*) FROM handoff_sessions
             WHERE restaurant_id=$1 AND created_at >= date_trunc('month', CURRENT_DATE)""", rid),
         p.fetch("""
-            SELECT to_char(created_at AT TIME ZONE 'America/Sao_Paulo', 'DD/MM') AS dia,
+            SELECT to_char(criado_em AT TIME ZONE 'America/Sao_Paulo', 'DD/MM') AS dia,
                    COUNT(*)                                                      AS reservas,
                    COUNT(*) FILTER (WHERE status='cancelada')                    AS canceladas,
-                   COALESCE(SUM(pessoas) FILTER (WHERE status='confirmada'), 0)  AS pessoas
-              FROM reservations
+                   COALESCE(SUM(posicoes) FILTER (WHERE status IN ('pendente','confirmada')), 0) AS pessoas
+              FROM reservas
              WHERE restaurant_id=$1
-               AND created_at >= NOW() - INTERVAL '1 day' * $2
+               AND criado_em >= NOW() - INTERVAL '1 day' * $2
              GROUP BY dia
-             ORDER BY MIN(created_at)""", rid, days),
+             ORDER BY MIN(criado_em)""", rid, days),
         p.fetch("""
-            SELECT hora,
+            SELECT hora_inicio AS hora,
                    COUNT(*)                     AS total,
-                   COALESCE(SUM(pessoas), 0)    AS pessoas
-              FROM reservations
-             WHERE restaurant_id=$1 AND status='confirmada'
-             GROUP BY hora
-             ORDER BY hora""", rid),
+                   COALESCE(SUM(posicoes), 0)   AS pessoas
+              FROM reservas
+             WHERE restaurant_id=$1 AND status IN ('pendente','confirmada')
+             GROUP BY hora_inicio
+             ORDER BY hora_inicio""", rid),
     )
 
     taxa_conversao    = round(clientes_com_reserva / clientes_unicos * 100, 1) if clientes_unicos else 0.0
@@ -1283,10 +1289,10 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
         LIMIT 25""", *args)
 
     pico_query = f"""
-        SELECT hora, SUM(pessoas) AS pessoas
-        FROM reservations
-        WHERE status='confirmada' {rid_filter}
-        GROUP BY hora ORDER BY pessoas DESC LIMIT 1"""
+        SELECT hora_inicio AS hora, SUM(posicoes) AS pessoas
+        FROM reservas
+        WHERE status IN ('pendente','confirmada') {rid_filter}
+        GROUP BY hora_inicio ORDER BY pessoas DESC LIMIT 1"""
     pico = await p.fetchrow(pico_query, *args)
 
     inativos_60d = await p.fetchval("""
