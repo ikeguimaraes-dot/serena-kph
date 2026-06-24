@@ -386,6 +386,122 @@ async def delete_experiencia(exp_id: str) -> bool:
     return int(r.split()[-1]) > 0
 
 
+# ── Orkestri — clustering de propostas ────────────────────────
+# Agrupa as propostas pending por tema (keyword), atribui cluster_rank
+# (1 = mais recente) e marca obsoleta. status real = 'pending' (não 'pendente').
+
+ORKESTRI_CLUSTERS = {
+    "tagme":            ["tagme", "widget", "reserva existente", "verificacao manual", "verificação manual"],
+    "lead_score":       ["lead_score", "lead score", "scoring", "qualificacao", "qualificação", "funil"],
+    "intencao":         ["intencao", "intenção", "intent", "desconhecida", "reclassif", "nova intencao", "nova intenção"],
+    "same_day":         ["same-day", "same day", "mesmo dia", "hoje", "urgente", "confirmacao urgente", "confirmação urgente"],
+    "cancelamento":     ["cancelamento", "cancelar", "taxa de cancel"],
+    "handoff":          ["handoff", "escalacao", "escalação", "atendimento manual", "outros"],
+    "email_comercial":  ["e-mail comercial", "email comercial", "comercial@"],
+    "eventos_privados": ["evento privado", "evento grande", "sala privativa", ">8", "acima de 8"],
+    "menu_especial":    ["menu especial", "menu degustacao", "menu degustação", "cardapio especial", "cardápio especial", "cardapio_degustacao"],
+    "namorados_expirado": ["dia dos namorados", "12/06", "namorados"],
+}
+
+# Ordem de prioridade na classificação: o EVENTO EXPIRADO (namorados) tem
+# precedência — cria seu próprio cluster p/ a seção "Expiradas" da UI. Depois
+# os temas funcionais. Primeiro keyword que casar manda.
+_CLUSTER_ORDER = [
+    "namorados_expirado", "tagme", "lead_score", "intencao", "same_day",
+    "cancelamento", "email_comercial", "eventos_privados", "menu_especial", "handoff",
+]
+
+def _classificar_cluster(txt: str) -> str:
+    t = (txt or "").lower()
+    for tema in _CLUSTER_ORDER:
+        if any(kw in t for kw in ORKESTRI_CLUSTERS[tema]):
+            return tema
+    return "outros"
+
+# Sub-clusters de 2º nível para os temas HETEROGÊNEOS — refina o cluster_tema
+# para que intenções/aspectos distintos não virem "duplicata" um do outro.
+# Os homogêneos (email_comercial, same_day, namorados_expirado, cancelamento,
+# eventos_privados, lead_score) não têm sub e colapsam por rank normalmente.
+_SUBCLUSTERS = {
+    "intencao": {
+        "intencao_desconhecida":       ["desconhecida", "ambigua", "ambígua", "reclassif"],
+        "intencao_objeto_perdido":     ["objeto perdido", "bolo", "esqueceu"],
+        "intencao_evento_grande":      ["evento grande", ">8", "acima de 8", "evento_grande"],
+        "intencao_reserva_modificacao":["ajuste de reserva", "modificacao", "modificação", "alterar horario", "alterar horário"],
+        "intencao_menu_especial":      ["menu especial", "cardapio especial", "cardápio especial", "menu_especial"],
+    },
+    "tagme": {
+        "tagme_reserva_existente": ["reserva existente", "verificacao", "verificação", "localizar reserva"],
+        "tagme_capacidade":        ["capacidade minima", "capacidade mínima", "3 pessoas", "widget rejeita"],
+        "tagme_integracao":        ["integracao", "integração", "tempo real", "bidirecional"],
+    },
+    "handoff": {
+        "handoff_manual":    ["atendimento iniciado manualmente", "outros", "73%"],
+        "handoff_escalacao": ["escalar", "escalacao", "escalação", "humano"],
+    },
+}
+
+def _refinar_subcluster(tema: str, txt: str) -> str:
+    subs = _SUBCLUSTERS.get(tema)
+    if not subs:
+        return tema
+    t = (txt or "").lower()
+    for sub, kws in subs.items():
+        if any(kw in t for kw in kws):
+            return sub
+    return tema  # nenhum sub casou → mantém o tema base como catch-all
+
+async def clusterizar_propostas(restaurant_id: str = "meet_and_eat", dry_run: bool = False) -> dict:
+    """Agrupa propostas pending por tema, atribui cluster_rank e marca obsoletas.
+    restaurant_id é só para log — orkestri_learning é global (sem restaurant_id).
+    dry_run=True classifica em memória e retorna o resumo SEM escrever no banco."""
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            "SELECT id, created_at, titulo, proposta, descricao "
+            "FROM orkestri_learning WHERE status='pending'")
+        por_tema: dict = {}
+        for r in rows:
+            txt = " ".join([r["titulo"] or "", r["proposta"] or "", r["descricao"] or ""])
+            tema = _refinar_subcluster(_classificar_cluster(txt), txt)
+            por_tema.setdefault(tema, []).append(r)
+
+        total = len(rows)
+        obsoletas = 0
+        updates = []  # (id, tema, rank, obsoleta, motivo)
+        for tema, lista in por_tema.items():
+            lista.sort(key=lambda r: r["created_at"], reverse=True)  # rank 1 = mais recente
+            for rank, r in enumerate(lista, start=1):
+                if tema == "namorados_expirado":
+                    obs, motivo = True, "evento expirado 12/06"
+                elif rank > 1:
+                    obs, motivo = True, "duplicata de proposta mais recente"
+                else:
+                    obs, motivo = False, None
+                if obs:
+                    obsoletas += 1
+                updates.append((r["id"], tema, rank, obs, motivo))
+
+        if not dry_run:
+            async with c.transaction():
+                for (pid, tema, rank, obs, motivo) in updates:
+                    await c.execute(
+                        "UPDATE orkestri_learning "
+                        "SET cluster_tema=$2, cluster_rank=$3, obsoleta=$4, obsoleta_motivo=$5 "
+                        "WHERE id=$1", pid, tema, rank, obs, motivo)
+
+    resumo = {}
+    for (_pid, tema, rank, obs, _m) in updates:
+        d = resumo.setdefault(tema, {"total": 0, "unicas": 0, "obsoletas": 0})
+        d["total"] += 1
+        d["obsoletas" if obs else "unicas"] += 1
+    return {
+        "dry_run": dry_run, "total": total,
+        "obsoletas": obsoletas, "unicas": total - obsoletas,
+        "clusters": len(por_tema),
+        "por_tema": {k: v for k, v in sorted(resumo.items(), key=lambda x: -x[1]["total"])},
+    }
+
+
 # ── FAQ ───────────────────────────────────────────────────────
 
 async def _get_faq(rid: str) -> dict:

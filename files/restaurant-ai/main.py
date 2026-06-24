@@ -1231,6 +1231,15 @@ async def descartar_proposta(proposta_id: int):
     return {"ok": True, "proposta_id": proposta_id, "status": "dismissed"}
 
 
+@app.post("/api/restaurants/{rid}/orkestri/clusterizar",
+          dependencies=[Depends(require_admin)])
+async def clusterizar_orkestri(rid: str, dry_run: bool = False):
+    """Agrupa as propostas pending por tema e marca obsoletas/duplicatas.
+    {rid} é só path param — orkestri_learning é global. O agente learning-machine
+    chama isto ao final de cada run diário."""
+    return await db.clusterizar_propostas(rid, dry_run=dry_run)
+
+
 @app.get("/api/orkestri/historico-prompts",
          dependencies=[Depends(require_admin)])
 async def historico_prompts(limit: int = 30):
@@ -1578,7 +1587,7 @@ async def widget_reserva(
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok", "sprint": "12", "release": "sprint12-concierge"}
+    return {"status": "ok", "sprint": "12", "release": "orkestri-clusters"}
 
 def _twiml(text: str) -> PlainTextResponse:
     safe = saxutils.escape(text)
