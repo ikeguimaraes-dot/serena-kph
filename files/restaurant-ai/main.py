@@ -1587,7 +1587,7 @@ async def widget_reserva(
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
-    return {"status": "ok", "sprint": "12", "release": "sprint12-concierge"}
+    return {"status": "ok", "sprint": "12", "release": "orkestri-clusters"}
 
 def _twiml(text: str) -> PlainTextResponse:
     safe = saxutils.escape(text)
