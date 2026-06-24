@@ -24,6 +24,15 @@ class RestaurantUpdate(BaseModel):
     antecedencia_minima_horas: Optional[int] = None
     capacidade_total: Optional[int] = None
     ativo: Optional[bool] = None
+    # Sprint 12 — config de concierge/loja (aba Minha Casa)
+    nome_agente: Optional[str] = None
+    personalidade: Optional[str] = None
+    tom_voz: Optional[str] = None
+    idioma: Optional[str] = None
+    telefone: Optional[str] = None
+    site: Optional[str] = None
+    horario_atendimento: Optional[str] = None
+    donts: Optional[list[str]] = None
 
 class BusinessHourItem(BaseModel):
     dia: str
