@@ -418,6 +418,39 @@ def _classificar_cluster(txt: str) -> str:
             return tema
     return "outros"
 
+# Sub-clusters de 2º nível para os temas HETEROGÊNEOS — refina o cluster_tema
+# para que intenções/aspectos distintos não virem "duplicata" um do outro.
+# Os homogêneos (email_comercial, same_day, namorados_expirado, cancelamento,
+# eventos_privados, lead_score) não têm sub e colapsam por rank normalmente.
+_SUBCLUSTERS = {
+    "intencao": {
+        "intencao_desconhecida":       ["desconhecida", "ambigua", "ambígua", "reclassif"],
+        "intencao_objeto_perdido":     ["objeto perdido", "bolo", "esqueceu"],
+        "intencao_evento_grande":      ["evento grande", ">8", "acima de 8", "evento_grande"],
+        "intencao_reserva_modificacao":["ajuste de reserva", "modificacao", "modificação", "alterar horario", "alterar horário"],
+        "intencao_menu_especial":      ["menu especial", "cardapio especial", "cardápio especial", "menu_especial"],
+    },
+    "tagme": {
+        "tagme_reserva_existente": ["reserva existente", "verificacao", "verificação", "localizar reserva"],
+        "tagme_capacidade":        ["capacidade minima", "capacidade mínima", "3 pessoas", "widget rejeita"],
+        "tagme_integracao":        ["integracao", "integração", "tempo real", "bidirecional"],
+    },
+    "handoff": {
+        "handoff_manual":    ["atendimento iniciado manualmente", "outros", "73%"],
+        "handoff_escalacao": ["escalar", "escalacao", "escalação", "humano"],
+    },
+}
+
+def _refinar_subcluster(tema: str, txt: str) -> str:
+    subs = _SUBCLUSTERS.get(tema)
+    if not subs:
+        return tema
+    t = (txt or "").lower()
+    for sub, kws in subs.items():
+        if any(kw in t for kw in kws):
+            return sub
+    return tema  # nenhum sub casou → mantém o tema base como catch-all
+
 async def clusterizar_propostas(restaurant_id: str = "meet_and_eat", dry_run: bool = False) -> dict:
     """Agrupa propostas pending por tema, atribui cluster_rank e marca obsoletas.
     restaurant_id é só para log — orkestri_learning é global (sem restaurant_id).
@@ -429,7 +462,8 @@ async def clusterizar_propostas(restaurant_id: str = "meet_and_eat", dry_run: bo
         por_tema: dict = {}
         for r in rows:
             txt = " ".join([r["titulo"] or "", r["proposta"] or "", r["descricao"] or ""])
-            por_tema.setdefault(_classificar_cluster(txt), []).append(r)
+            tema = _refinar_subcluster(_classificar_cluster(txt), txt)
+            por_tema.setdefault(tema, []).append(r)
 
         total = len(rows)
         obsoletas = 0
