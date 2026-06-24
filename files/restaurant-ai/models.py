@@ -49,6 +49,48 @@ class MenuItemUpdate(BaseModel):
     ordem: Optional[int] = None
 
 
+# ── Ambientes (Sprint 12 — Minha Casa) ───────────────────────
+class AmbienteCreate(BaseModel):
+    nome: str
+    capacidade: Optional[int] = None
+    num_mesas: Optional[int] = None
+    pessoas_por_mesa: Optional[int] = None
+    ativo: bool = True
+    horario_proprio: Optional[dict] = None
+    imagem_url: Optional[str] = None
+    ordem: int = 0
+
+class AmbienteUpdate(BaseModel):
+    nome: Optional[str] = None
+    capacidade: Optional[int] = None
+    num_mesas: Optional[int] = None
+    pessoas_por_mesa: Optional[int] = None
+    ativo: Optional[bool] = None
+    horario_proprio: Optional[dict] = None
+    imagem_url: Optional[str] = None
+    ordem: Optional[int] = None
+
+
+# ── Experiências (Sprint 12 — Minha Casa) ────────────────────
+class ExperienciaCreate(BaseModel):
+    nome: str
+    descricao: str = ""
+    datas: str = ""
+    valores: str = ""
+    link: str = ""
+    ativo: bool = True
+    ordem: int = 0
+
+class ExperienciaUpdate(BaseModel):
+    nome: Optional[str] = None
+    descricao: Optional[str] = None
+    datas: Optional[str] = None
+    valores: Optional[str] = None
+    link: Optional[str] = None
+    ativo: Optional[bool] = None
+    ordem: Optional[int] = None
+
+
 # ── FAQ ───────────────────────────────────────────────────────
 class FaqItemCreate(BaseModel):
     chave: str
