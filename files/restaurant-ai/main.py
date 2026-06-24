@@ -25,6 +25,7 @@ from models import (
     MenuItemCreate, MenuItemUpdate, FaqItemCreate,
     ReservationUpdate, HandoffReply, HandoffResolve, TeamMemberCreate,
     ContactUpsert, ContactUpdate, ContactKanbanMove,
+    AmbienteCreate, AmbienteUpdate, ExperienciaCreate, ExperienciaUpdate,
 )
 import notifications as notif
 from email_service import (
@@ -314,6 +315,50 @@ async def update_menu_item(item_id: int, data: MenuItemUpdate):
 @app.delete("/api/menu/{item_id}")
 async def delete_menu_item(item_id: int):
     if not await db.delete_menu_item(item_id):
+        raise HTTPException(404)
+    return {"ok": True}
+
+# ── Ambientes (Sprint 12 — Minha Casa) ───────────────────────
+@app.get("/api/restaurants/{rid}/ambientes")
+async def list_ambientes(rid: str):
+    return await db.get_ambientes(rid)
+
+@app.post("/api/restaurants/{rid}/ambientes", status_code=201)
+async def create_ambiente(rid: str, data: AmbienteCreate):
+    return await db.create_ambiente(rid, data.model_dump())
+
+@app.patch("/api/ambientes/{amb_id}")
+async def update_ambiente(amb_id: str, data: AmbienteUpdate):
+    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not await db.update_ambiente(amb_id, payload):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.delete("/api/ambientes/{amb_id}")
+async def delete_ambiente(amb_id: str):
+    if not await db.delete_ambiente(amb_id):
+        raise HTTPException(404)
+    return {"ok": True}
+
+# ── Experiências (Sprint 12 — Minha Casa) ────────────────────
+@app.get("/api/restaurants/{rid}/experiencias")
+async def list_experiencias(rid: str):
+    return await db.get_experiencias(rid)
+
+@app.post("/api/restaurants/{rid}/experiencias", status_code=201)
+async def create_experiencia(rid: str, data: ExperienciaCreate):
+    return await db.create_experiencia(rid, data.model_dump())
+
+@app.patch("/api/experiencias/{exp_id}")
+async def update_experiencia(exp_id: str, data: ExperienciaUpdate):
+    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not await db.update_experiencia(exp_id, payload):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.delete("/api/experiencias/{exp_id}")
+async def delete_experiencia(exp_id: str):
+    if not await db.delete_experiencia(exp_id):
         raise HTTPException(404)
     return {"ok": True}
 

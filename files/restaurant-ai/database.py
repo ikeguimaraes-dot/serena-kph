@@ -299,6 +299,82 @@ async def delete_menu_item(item_id: int) -> bool:
     return int(r.split()[-1]) > 0
 
 
+# ── Ambientes / Experiências (Sprint 12 — Minha Casa) ─────────
+# Espelham o padrão CRUD do cardápio. id = UUID (texto na API).
+
+async def get_ambientes(rid: str) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            "SELECT * FROM restaurant_ambientes WHERE restaurant_id=$1 ORDER BY ordem, nome", rid)
+    return [dict(r) for r in rows]
+
+async def create_ambiente(rid: str, data: dict) -> dict:
+    import json as _json
+    hp = data.get("horario_proprio")
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO restaurant_ambientes
+              (restaurant_id,nome,capacidade,num_mesas,pessoas_por_mesa,ativo,horario_proprio,imagem_url,ordem)
+            VALUES ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,$9) RETURNING id""",
+            rid, data["nome"], data.get("capacidade"), data.get("num_mesas"),
+            data.get("pessoas_por_mesa"), data.get("ativo", True),
+            _json.dumps(hp) if hp is not None else None,
+            data.get("imagem_url"), data.get("ordem", 0))
+    return {"id": str(row["id"])}
+
+async def update_ambiente(amb_id: str, data: dict) -> bool:
+    import json as _json
+    data["atualizado_em"] = datetime.now(_TZ_SP)
+    fields, vals = [], []
+    for k, v in data.items():
+        if k == "horario_proprio":
+            fields.append(f"{k}=${len(vals)+2}::jsonb")
+            vals.append(_json.dumps(v) if v is not None else None)
+        else:
+            fields.append(f"{k}=${len(vals)+2}")
+            vals.append(v)
+    async with pool().acquire() as c:
+        r = await c.execute(
+            f"UPDATE restaurant_ambientes SET {','.join(fields)} WHERE id=$1::uuid",
+            amb_id, *vals)
+    return int(r.split()[-1]) > 0
+
+async def delete_ambiente(amb_id: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute("DELETE FROM restaurant_ambientes WHERE id=$1::uuid", amb_id)
+    return int(r.split()[-1]) > 0
+
+async def get_experiencias(rid: str) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            "SELECT * FROM experiencias WHERE restaurant_id=$1 ORDER BY ordem, nome", rid)
+    return [dict(r) for r in rows]
+
+async def create_experiencia(rid: str, data: dict) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO experiencias (restaurant_id,nome,descricao,datas,valores,link,ativo,ordem)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id""",
+            rid, data["nome"], data.get("descricao", ""), data.get("datas", ""),
+            data.get("valores", ""), data.get("link", ""),
+            data.get("ativo", True), data.get("ordem", 0))
+    return {"id": str(row["id"])}
+
+async def update_experiencia(exp_id: str, data: dict) -> bool:
+    data["atualizado_em"] = datetime.now(_TZ_SP)
+    fields = [f"{k}=${i+2}" for i, k in enumerate(data.keys())]
+    async with pool().acquire() as c:
+        r = await c.execute(
+            f"UPDATE experiencias SET {','.join(fields)} WHERE id=$1::uuid",
+            exp_id, *data.values())
+    return int(r.split()[-1]) > 0
+
+async def delete_experiencia(exp_id: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute("DELETE FROM experiencias WHERE id=$1::uuid", exp_id)
+    return int(r.split()[-1]) > 0
+
+
 # ── FAQ ───────────────────────────────────────────────────────
 
 async def _get_faq(rid: str) -> dict:
