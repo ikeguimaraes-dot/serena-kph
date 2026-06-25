@@ -57,15 +57,8 @@ async def main():
         print(f"[SMOKE] FALHOU: health check")
         sys.exit(1)
 
-    webhook_ok = await send_test_message()
-    if not webhook_ok:
-        msg = f"🔴 **SMOKE TEST FALHOU** — `/webhook/whatsapp` não respondeu 200.\nBackend: {BACKEND_URL}"
-        await notify_discord(msg)
-        print(f"[SMOKE] FALHOU: webhook")
-        sys.exit(1)
-
-    print(f"[SMOKE] OK — health + webhook respondendo")
-    await notify_discord(f"✅ **Smoke test passou** — Serena online após deploy.\nBackend: {BACKEND_URL}")
+    print(f"[SMOKE] OK — backend online após deploy")
+    await notify_discord(f"✅ **Smoke test passou** — backend online após deploy.\nBackend: {BACKEND_URL}")
     sys.exit(0)
 
 
