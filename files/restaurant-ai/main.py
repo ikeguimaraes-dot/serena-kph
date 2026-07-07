@@ -1563,7 +1563,7 @@ async def widget_reserva(
         telefone = "55" + telefone
 
     try:
-        await db.ensure_contact(telefone, body.nome)
+        await db.ensure_contact(telefone, body.nome, restaurant_id=restaurant_id)
     except Exception:
         pass  # não bloqueia o fluxo se o contato já existir
 

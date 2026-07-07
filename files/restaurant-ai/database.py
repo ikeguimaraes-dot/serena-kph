@@ -844,22 +844,27 @@ KANBAN_ESTAGIOS = (
 )
 
 
-async def ensure_contact(celular: str, nome: Optional[str] = None) -> None:
-    """Cria contato-semente com celular (e nome, se disponível). Idempotente.
-    Se o contato já existe mas não tem nome, seta o nome fornecido."""
+async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id: Optional[str] = None) -> None:
+    """Cria contato-semente com celular (e nome/restaurant_id, se disponíveis). Idempotente.
+    Se o contato já existe mas não tem nome, seta o nome fornecido.
+    Se o contato já existe mas não tem restaurant_id, preenche sem sobrescrever."""
     nome = (nome or "").strip() or None
     async with pool().acquire() as c:
         if nome:
             await c.execute(
-                """INSERT INTO contacts (celular, nome) VALUES ($1, $2)
-                   ON CONFLICT (celular) DO UPDATE SET nome = EXCLUDED.nome
-                   WHERE contacts.nome IS NULL OR contacts.nome = ''""",
-                celular, nome,
+                """INSERT INTO contacts (celular, nome, restaurant_id) VALUES ($1, $2, $3)
+                   ON CONFLICT (celular) DO UPDATE SET
+                     nome = CASE WHEN contacts.nome IS NULL OR contacts.nome = ''
+                                 THEN EXCLUDED.nome ELSE contacts.nome END,
+                     restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
+                celular, nome, restaurant_id,
             )
         else:
             await c.execute(
-                "INSERT INTO contacts (celular) VALUES ($1) ON CONFLICT (celular) DO NOTHING",
-                celular,
+                """INSERT INTO contacts (celular, restaurant_id) VALUES ($1, $2)
+                   ON CONFLICT (celular) DO UPDATE SET
+                     restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
+                celular, restaurant_id,
             )
 
 
