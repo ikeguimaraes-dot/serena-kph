@@ -209,7 +209,7 @@ class RestaurantAgent:
 
 
         try:
-            await db.ensure_contact(user_phone, nome=profile_name)
+            await db.ensure_contact(user_phone, nome=profile_name, restaurant_id=rid)
         except Exception as e:
             print(f"[AGENT] ensure_contact falhou user={user_phone!r}: {e!r}")
 
