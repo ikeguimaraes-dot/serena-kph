@@ -3,7 +3,7 @@ Camada de dados — PostgreSQL via asyncpg (Supabase).
 Cobre: conversas, reservas, restaurantes, cardápio, handoff, relatórios.
 """
 
-import os, uuid, asyncio
+import os, uuid, asyncio, json
 import asyncpg
 import pytz
 from typing import Optional
@@ -531,6 +531,86 @@ async def delete_faq_item(item_id: int) -> bool:
     async with pool().acquire() as c:
         r = await c.execute("DELETE FROM faq_items WHERE id=$1", item_id)
     return int(r.split()[-1]) > 0
+
+
+# ── Eventos ───────────────────────────────────────────────────
+
+async def _build_eventos_block(rid: str) -> str:
+    """Retorna bloco de texto com eventos ativos para injecao no prompt da Serena.
+    Retorna string vazia quando nao ha eventos — comportamento atual preservado sem mudanca."""
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT
+              ae.nome, ae.data, ae.dia_semana_label,
+              ae.hora_inicio, ae.hora_fim, ae.hora_evento,
+              ae.enquadramento, ae.adversario,
+              COALESCE(
+                json_agg(
+                  json_build_object(
+                    'nome', ex.nome,
+                    'valor', ex.valor,
+                    'valor_consumo', ex.valor_consumo,
+                    'regra_consumo', ex.regra_consumo,
+                    'tipo_mesa', ex.tipo_mesa
+                  ) ORDER BY ex.ordem
+                ) FILTER (WHERE ex.id IS NOT NULL),
+                '[]'::json
+              ) AS experiencias
+            FROM agenda_eventos ae
+            LEFT JOIN evento_experiencias ee ON ee.evento_id = ae.id
+            LEFT JOIN experiencias ex ON ex.id = ee.experiencia_id AND ex.ativo = TRUE
+            WHERE ae.restaurant_id = $1
+              AND ae.ativo = TRUE
+              AND ae.data >= (now() AT TIME ZONE 'America/Sao_Paulo')::date
+            GROUP BY ae.id, ae.nome, ae.data, ae.dia_semana_label,
+                     ae.hora_inicio, ae.hora_fim, ae.hora_evento,
+                     ae.enquadramento, ae.adversario
+            ORDER BY ae.data
+        """, rid)
+
+    if not rows:
+        return ""
+
+    def _fmt_h(t) -> str:
+        if t is None:
+            return ""
+        return f"{t.hour:02d}h" if t.minute == 0 else f"{t.hour:02d}h{t.minute:02d}"
+
+    lines = ["\n\nEVENTOS E PROGRAMACAO ESPECIAL"]
+    for row in rows:
+        data_str = row["data"].strftime("%d/%m")
+        if row["dia_semana_label"]:
+            data_str += f" ({row['dia_semana_label']})"
+        lines.append(f"\n- {row['nome']} | {data_str}")
+
+        if row["hora_evento"]:
+            lines.append(f"  Horario do evento: {_fmt_h(row['hora_evento'])}")
+
+        if row["hora_inicio"] or row["hora_fim"]:
+            lines.append(f"  Casa: das {_fmt_h(row['hora_inicio'])} as {_fmt_h(row['hora_fim'])}")
+
+        if row["enquadramento"]:
+            lines.append(f"  Formato: {row['enquadramento']}")
+
+        if row["adversario"]:
+            lines.append(f"  Contexto: {row['adversario']}")
+
+        raw = row["experiencias"]
+        experiencias = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        for ex in experiencias:
+            if not ex.get("nome"):
+                continue
+            ex_line = f"  * {ex['nome']}"
+            if ex.get("tipo_mesa"):
+                ex_line += f" ({ex['tipo_mesa']})"
+            if ex.get("valor") is not None:
+                ex_line += f" — R$ {float(ex['valor']):.2f}/pessoa"
+            if ex.get("valor_consumo") is not None:
+                regra = ex.get("regra_consumo") or "consumacao minima"
+                ex_line += f" + {regra} R$ {float(ex['valor_consumo']):.2f}"
+            lines.append(ex_line)
+
+    return "\n".join(lines)
 
 
 # ── Conversas ─────────────────────────────────────────────────
