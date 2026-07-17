@@ -7,7 +7,7 @@ import os, uuid, asyncio, json
 import asyncpg
 import pytz
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date as _date, time as _time
 
 _TZ_SP = pytz.timezone("America/Sao_Paulo")
 
@@ -611,6 +611,137 @@ async def _build_eventos_block(rid: str) -> str:
             lines.append(ex_line)
 
     return "\n".join(lines)
+
+
+# ── Eventos CRUD ──────────────────────────────────────────────
+
+def _parse_date(v):
+    if v is None or isinstance(v, _date):
+        return v
+    return _date.fromisoformat(str(v))
+
+def _parse_time(v):
+    if v is None or isinstance(v, _time):
+        return v
+    return _time.fromisoformat(str(v))
+
+_EVENTO_DATE_COLS = {"data"}
+_EVENTO_TIME_COLS = {"hora_inicio", "hora_fim", "hora_evento"}
+
+
+async def get_eventos(rid: str) -> list[dict]:
+    async with pool().acquire() as c:
+        rows = await c.fetch("""
+            SELECT id, restaurant_id, nome, data, descricao, capacidade_total,
+                   hora_inicio, hora_fim, hora_evento, dia_semana_label,
+                   enquadramento, adversario, requer_pagamento, ativo, criado_em
+            FROM agenda_eventos
+            WHERE restaurant_id = $1
+            ORDER BY data, hora_evento
+        """, rid)
+    return [dict(r) for r in rows]
+
+
+async def create_evento(rid: str, data: dict) -> dict:
+    async with pool().acquire() as c:
+        row = await c.fetchrow("""
+            INSERT INTO agenda_eventos (
+                restaurant_id, nome, data, descricao, capacidade_total,
+                hora_inicio, hora_fim, hora_evento, dia_semana_label,
+                enquadramento, adversario, requer_pagamento, ativo
+            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,FALSE)
+            RETURNING id
+        """,
+            rid,
+            data["nome"],
+            _parse_date(data["data"]),
+            data.get("descricao"),
+            data.get("capacidade_total"),
+            _parse_time(data.get("hora_inicio")),
+            _parse_time(data.get("hora_fim")),
+            _parse_time(data.get("hora_evento")),
+            data.get("dia_semana_label"),
+            data.get("enquadramento"),
+            data.get("adversario"),
+            data.get("requer_pagamento", True),
+        )
+    return {"id": str(row["id"])}
+
+
+async def update_evento(evento_id: str, rid: str, payload: dict) -> bool:
+    if not payload:
+        return True
+    parsed = {
+        k: (_parse_date(v) if k in _EVENTO_DATE_COLS else _parse_time(v) if k in _EVENTO_TIME_COLS else v)
+        for k, v in payload.items()
+    }
+    cols = list(parsed.keys())
+    vals = [parsed[col] for col in cols]
+    set_clause = ", ".join(f"{col}=${i+1}" for i, col in enumerate(cols))
+    async with pool().acquire() as c:
+        r = await c.execute(
+            f"UPDATE agenda_eventos SET {set_clause} WHERE id=${len(cols)+1} AND restaurant_id=${len(cols)+2}",
+            *vals, evento_id, rid,
+        )
+    return int(r.split()[-1]) > 0
+
+
+async def publicar_evento(evento_id: str, rid: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute(
+            "UPDATE agenda_eventos SET ativo=TRUE WHERE id=$1 AND restaurant_id=$2",
+            evento_id, rid,
+        )
+    return int(r.split()[-1]) > 0
+
+
+async def despublicar_evento(evento_id: str, rid: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute(
+            "UPDATE agenda_eventos SET ativo=FALSE WHERE id=$1 AND restaurant_id=$2",
+            evento_id, rid,
+        )
+    return int(r.split()[-1]) > 0
+
+
+async def delete_evento(evento_id: str, rid: str) -> bool:
+    async with pool().acquire() as c:
+        r = await c.execute(
+            "DELETE FROM agenda_eventos WHERE id=$1 AND restaurant_id=$2",
+            evento_id, rid,
+        )
+    return int(r.split()[-1]) > 0
+
+
+async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: list) -> bool:
+    """Substitui o conjunto de vínculos em transação atômica.
+    Valida ownership do evento E que todas as experiências pertencem ao mesmo rid."""
+    exp_ids = list(dict.fromkeys(experiencia_ids))  # dedup preservando ordem
+    async with pool().acquire() as c:
+        exists = await c.fetchval(
+            "SELECT EXISTS(SELECT 1 FROM agenda_eventos WHERE id=$1 AND restaurant_id=$2)",
+            evento_id, rid,
+        )
+        if not exists:
+            return False
+        if exp_ids:
+            exp_uuids = [uuid.UUID(eid) for eid in exp_ids]
+            valid = await c.fetchval(
+                "SELECT COUNT(*) FROM experiencias WHERE id = ANY($1) AND restaurant_id=$2",
+                exp_uuids, rid,
+            )
+            if int(valid) != len(exp_ids):
+                return False  # alguma experiência não pertence a este rid
+        async with c.transaction():
+            await c.execute(
+                "DELETE FROM evento_experiencias WHERE evento_id=$1", evento_id
+            )
+            if exp_ids:
+                await c.executemany(
+                    "INSERT INTO evento_experiencias (evento_id, experiencia_id) VALUES ($1,$2)",
+                    [(evento_id, eid) for eid in exp_ids],
+                )
+    return True
 
 
 # ── Conversas ─────────────────────────────────────────────────

@@ -26,6 +26,7 @@ from models import (
     ReservationUpdate, HandoffReply, HandoffResolve, TeamMemberCreate,
     ContactUpsert, ContactUpdate, ContactKanbanMove,
     AmbienteCreate, AmbienteUpdate, ExperienciaCreate, ExperienciaUpdate,
+    EventoCreate, EventoUpdate, EventoExperienciasSet,
 )
 import notifications as notif
 from email_service import (
@@ -359,6 +360,47 @@ async def update_experiencia(exp_id: str, data: ExperienciaUpdate):
 @app.delete("/api/experiencias/{exp_id}")
 async def delete_experiencia(exp_id: str):
     if not await db.delete_experiencia(exp_id):
+        raise HTTPException(404)
+    return {"ok": True}
+
+
+# ── Eventos (Serena OS — Minha Casa) ─────────────────────────
+@app.get("/api/restaurants/{rid}/eventos")
+async def list_eventos(rid: str):
+    return await db.get_eventos(rid)
+
+@app.post("/api/restaurants/{rid}/eventos", status_code=201)
+async def create_evento(rid: str, data: EventoCreate):
+    return await db.create_evento(rid, data.model_dump())
+
+@app.patch("/api/eventos/{evento_id}")
+async def update_evento(evento_id: str, rid: str = Query(...), data: EventoUpdate = Body(...)):
+    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    if not await db.update_evento(evento_id, rid, payload):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.patch("/api/eventos/{evento_id}/publicar")
+async def publicar_evento(evento_id: str, rid: str = Query(...)):
+    if not await db.publicar_evento(evento_id, rid):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.patch("/api/eventos/{evento_id}/despublicar")
+async def despublicar_evento(evento_id: str, rid: str = Query(...)):
+    if not await db.despublicar_evento(evento_id, rid):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.delete("/api/eventos/{evento_id}")
+async def delete_evento_endpoint(evento_id: str, rid: str = Query(...)):
+    if not await db.delete_evento(evento_id, rid):
+        raise HTTPException(404)
+    return {"ok": True}
+
+@app.post("/api/eventos/{evento_id}/experiencias")
+async def set_evento_experiencias(evento_id: str, rid: str = Query(...), data: EventoExperienciasSet = Body(...)):
+    if not await db.set_evento_experiencias(evento_id, rid, data.experiencia_ids):
         raise HTTPException(404)
     return {"ok": True}
 
