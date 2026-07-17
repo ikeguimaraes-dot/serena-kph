@@ -100,6 +100,38 @@ class ExperienciaUpdate(BaseModel):
     ordem: Optional[int] = None
 
 
+# ── Eventos ───────────────────────────────────────────────────
+class EventoCreate(BaseModel):
+    nome: str
+    data: str                            # "YYYY-MM-DD"
+    descricao: Optional[str] = None
+    capacidade_total: Optional[int] = None
+    hora_inicio: Optional[str] = None    # "HH:MM"
+    hora_fim: Optional[str] = None
+    hora_evento: Optional[str] = None
+    dia_semana_label: Optional[str] = None
+    enquadramento: Optional[str] = None
+    adversario: Optional[str] = None
+    requer_pagamento: bool = True
+    # ativo NÃO exposto — sempre FALSE no POST; publicar é ação separada
+
+class EventoUpdate(BaseModel):
+    nome: Optional[str] = None
+    data: Optional[str] = None
+    descricao: Optional[str] = None
+    capacidade_total: Optional[int] = None
+    hora_inicio: Optional[str] = None
+    hora_fim: Optional[str] = None
+    hora_evento: Optional[str] = None
+    dia_semana_label: Optional[str] = None
+    enquadramento: Optional[str] = None
+    adversario: Optional[str] = None
+    requer_pagamento: Optional[bool] = None
+
+class EventoExperienciasSet(BaseModel):
+    experiencia_ids: list[str] = []
+
+
 # ── FAQ ───────────────────────────────────────────────────────
 class FaqItemCreate(BaseModel):
     chave: str
