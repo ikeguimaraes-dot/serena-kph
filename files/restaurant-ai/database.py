@@ -714,7 +714,9 @@ async def delete_evento(evento_id: str, rid: str) -> bool:
 
 
 async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: list) -> bool:
-    """Substitui o conjunto de vínculos em transação atômica. Valida ownership."""
+    """Substitui o conjunto de vínculos em transação atômica.
+    Valida ownership do evento E que todas as experiências pertencem ao mesmo rid."""
+    exp_ids = list(dict.fromkeys(experiencia_ids))  # dedup preservando ordem
     async with pool().acquire() as c:
         exists = await c.fetchval(
             "SELECT EXISTS(SELECT 1 FROM agenda_eventos WHERE id=$1 AND restaurant_id=$2)",
@@ -722,14 +724,22 @@ async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: lis
         )
         if not exists:
             return False
+        if exp_ids:
+            exp_uuids = [uuid.UUID(eid) for eid in exp_ids]
+            valid = await c.fetchval(
+                "SELECT COUNT(*) FROM experiencias WHERE id = ANY($1) AND restaurant_id=$2",
+                exp_uuids, rid,
+            )
+            if int(valid) != len(exp_ids):
+                return False  # alguma experiência não pertence a este rid
         async with c.transaction():
             await c.execute(
                 "DELETE FROM evento_experiencias WHERE evento_id=$1", evento_id
             )
-            if experiencia_ids:
+            if exp_ids:
                 await c.executemany(
                     "INSERT INTO evento_experiencias (evento_id, experiencia_id) VALUES ($1,$2)",
-                    [(evento_id, eid) for eid in experiencia_ids],
+                    [(evento_id, eid) for eid in exp_ids],
                 )
     return True
 
