@@ -34,6 +34,7 @@ from email_service import (
     send_proposta_enviada,
     send_comprovante_pagamento,
 )
+from tenancy import MULTI_TENANT_ENABLED  # Sprint White-Label C1 — flag inerte
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
