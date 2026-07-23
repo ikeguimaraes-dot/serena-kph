@@ -34,7 +34,7 @@ from email_service import (
     send_proposta_enviada,
     send_comprovante_pagamento,
 )
-from tenancy import MULTI_TENANT_ENABLED  # Sprint White-Label C1 — flag inerte
+from tenancy import MULTI_TENANT_ENABLED, get_casas_permitidas  # Sprint White-Label C2
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
@@ -268,7 +268,10 @@ async def whatsapp_webhook(
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/api/restaurants")
-async def list_restaurants():
+async def list_restaurants(x_operator_id: Optional[str] = Header(None)):
+    if MULTI_TENANT_ENABLED and x_operator_id:
+        casas = await get_casas_permitidas(x_operator_id)
+        return [r for r in await db.get_all_restaurants() if r["id"] in casas]
     return await db.get_all_restaurants()
 
 @app.post("/api/restaurants", status_code=201)
