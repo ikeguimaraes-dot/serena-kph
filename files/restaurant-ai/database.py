@@ -70,6 +70,17 @@ async def get_all_restaurants() -> list[dict]:
         )
     return [dict(r) for r in rows]
 
+
+async def get_casas_do_operador(operator_id: str) -> list[str]:
+    """Retorna restaurant_ids acessíveis ao operador (Sprint White-Label C2)."""
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            "SELECT restaurant_id FROM usuario_restaurante WHERE usuario_id=$1::uuid",
+            operator_id,
+        )
+    return [r["restaurant_id"] for r in rows]
+
+
 async def get_restaurant_full(rid: str) -> Optional[dict]:
     """Versao COMPLETA com menu_items. Usada apenas pelo agent/handoff."""
     row, horarios, faq, menu, team, datas = await asyncio.gather(
@@ -621,9 +632,12 @@ def _parse_date(v):
     return _date.fromisoformat(str(v))
 
 def _parse_time(v):
-    if v is None or isinstance(v, _time):
+    if v is None:
         return v
-    return _time.fromisoformat(str(v))
+    if not isinstance(v, str):
+        return v
+    s = v + ":00" if len(v) == 5 else v
+    return _time.fromisoformat(s)
 
 _EVENTO_DATE_COLS = {"data"}
 _EVENTO_TIME_COLS = {"hora_inicio", "hora_fim", "hora_evento"}
@@ -1380,7 +1394,7 @@ async def contact_stats() -> dict:
 
 # ── Onda 8 — Serena instrumentation ────────────────────────────
 
-import time as _time
+import time as _timemod
 
 # Cache do prompt ativo: 5min — recarrega via _prompt_cache_clear() ao ativar nova versão.
 _prompt_cache: Optional[dict] = None
@@ -1401,7 +1415,7 @@ async def get_active_prompt(restaurant_id: str = "madonna_cucina") -> Optional[d
     if (
         isinstance(_prompt_cache, dict)
         and _prompt_cache.get("_cache_rid") == cache_key
-        and (_time.monotonic() - _prompt_cache_at) < _PROMPT_TTL
+        and (_timemod.monotonic() - _prompt_cache_at) < _PROMPT_TTL
     ):
         return _prompt_cache
     async with pool().acquire() as c:
@@ -1414,7 +1428,7 @@ async def get_active_prompt(restaurant_id: str = "madonna_cucina") -> Optional[d
         cached = dict(row)
         cached["_cache_rid"] = cache_key
         _prompt_cache = cached
-        _prompt_cache_at = _time.monotonic()
+        _prompt_cache_at = _timemod.monotonic()
         return cached
     return None
 

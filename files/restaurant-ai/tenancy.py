@@ -1,16 +1,18 @@
 """
 Infra de multi-tenancy — Sprint White-Label, Fase C.
 
-C1  (este arquivo): flag inerte + helpers pass-through.
-     Comportamento idêntico ao de hoje em QUALQUER valor da flag.
-C2  (próximo pacote): substituir os corpos pass-through pela lógica real
-     (consulta usuario_restaurante + validação de x-operator-id).
+C1  (entregue): flag inerte + helpers pass-through.
+C2  (este arquivo): lógica real — consulta usuario_restaurante + 403 quando negado.
 
 Rollback emergencial: setar MULTI_TENANT_ENABLED=false no Railway (~30s).
 """
 
 import logging
 import os
+
+from fastapi import HTTPException
+
+import database as db  # import direto — database.py NÃO importa tenancy (sem circular)
 
 logger = logging.getLogger("tenancy")
 
@@ -24,29 +26,28 @@ MULTI_TENANT_ENABLED: bool = (
 async def get_casas_permitidas(operator_id: str) -> list[str]:
     """Retorna os restaurant_ids que o operador tem acesso.
 
-    C1 — pass-through: retorna [] (sem restrição).
-    C2 — consultar usuario_restaurante WHERE usuario_id = operator_id.
+    C2 — consulta usuario_restaurante WHERE usuario_id = operator_id.
     """
-    # C2: return await db.get_casas_do_operador(operator_id)
-    return []
+    return await db.get_casas_do_operador(operator_id)
 
 
 async def check_tenancy(rid: str, operator_id: str) -> bool:
     """Verifica se operator_id tem acesso ao restaurante rid.
 
-    Retorna True em AMBOS os estados da flag (C1 é inerte).
-    Quando flag=True, emite log estruturado para provar que a fiação está viva.
-    C2 — substituir o corpo pelo check real em usuario_restaurante.
+    flag=false → sempre True (comportamento atual, sem custo de DB).
+    flag=true  → consulta usuario_restaurante; 403 se rid não autorizado.
     """
     if not MULTI_TENANT_ENABLED:
         return True
 
-    # Flag ligada: fiação viva, mas ainda sem restrição (C2 pendente).
+    casas = await get_casas_permitidas(operator_id)
     logger.info(
-        "tenancy_check rid=%s operator=%s result=allowed note=C2_pending",
+        "tenancy_check rid=%s operator=%s casas=%s result=%s",
         rid,
         operator_id,
+        casas,
+        "allowed" if rid in casas else "denied",
     )
-    # C2: casas = await get_casas_permitidas(operator_id)
-    #     if rid not in casas: raise HTTPException(403, "Acesso negado a este restaurante")
+    if rid not in casas:
+        raise HTTPException(403, "Acesso negado a este restaurante")
     return True
