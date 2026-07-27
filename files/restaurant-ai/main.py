@@ -1306,6 +1306,54 @@ async def historico_prompts(limit: int = 30):
     return [dict(r) for r in rows]
 
 
+@app.get("/api/orkestri/scores",
+         dependencies=[Depends(require_admin)])
+async def get_orkestri_scores(periodo: Optional[str] = None):
+    """Score consolidado por módulo — endpoint de saída para kph-os-inteligencia.
+
+    ?periodo=YYYY-MM  filtra por mês (ex: 2026-07). Omitido = mais recente.
+    Read-only. Sem efeito colateral.
+
+    Shape de resposta:
+      [{ modulo, score, periodo, insight_texto, breakdown, atualizado_em }]
+    """
+    async with db.pool().acquire() as c:
+        rows_s = await c.fetch("""
+            SELECT DISTINCT ON (module)
+                module,
+                score,
+                breakdown,
+                generated_at
+            FROM orkestri_scores
+            WHERE ($1::text IS NULL OR TO_CHAR(generated_at, 'YYYY-MM') = $1)
+            ORDER BY module, generated_at DESC
+        """, periodo)
+
+        rows_i = await c.fetch("""
+            SELECT DISTINCT ON (module)
+                module,
+                insight,
+                created_at
+            FROM orkestri_insights
+            WHERE ($1::text IS NULL OR TO_CHAR(created_at, 'YYYY-MM') = $1)
+            ORDER BY module, created_at DESC
+        """, periodo)
+
+    insights_map = {r["module"]: r["insight"] for r in rows_i}
+
+    return [
+        {
+            "modulo":        r["module"],
+            "score":         r["score"],
+            "periodo":       r["generated_at"].strftime("%Y-%m") if r["generated_at"] else None,
+            "insight_texto": insights_map.get(r["module"]),
+            "breakdown":     dict(r["breakdown"]) if r["breakdown"] else {},
+            "atualizado_em": r["generated_at"].isoformat() if r["generated_at"] else None,
+        }
+        for r in rows_s
+    ]
+
+
 # ── Weekly report (gera análise via Claude) ───────────────────
 
 @app.post("/api/serena/weekly-report", dependencies=[Depends(require_admin)])
