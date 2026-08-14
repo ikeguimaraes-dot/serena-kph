@@ -1347,7 +1347,7 @@ async def get_orkestri_scores(periodo: Optional[str] = None):
             "score":         r["score"],
             "periodo":       r["generated_at"].strftime("%Y-%m") if r["generated_at"] else None,
             "insight_texto": insights_map.get(r["module"]),
-            "breakdown":     dict(r["breakdown"]) if r["breakdown"] else {},
+            "breakdown":     dict(json.loads(r["breakdown"]) if isinstance(r["breakdown"], str) else r["breakdown"]) if r["breakdown"] else {},
             "atualizado_em": r["generated_at"].isoformat() if r["generated_at"] else None,
         }
         for r in rows_s
