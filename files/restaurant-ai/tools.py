@@ -541,3 +541,148 @@ async def gerar_proposta(
         f"Proposta válida por 48h. Posso garantir sua data agora?"
     )
     return proposta
+
+
+# ── Sprint 3 — Tool determinístico de proposta ───────────────────────────────
+
+async def calcular_proposta(
+    restaurant_id: str,
+    user_phone: str,
+    nome: str,
+    tipo: str,
+    plano,
+    n_pessoas: int,
+    ambiente: str,
+    data: str | None = None,
+    addons: list | None = None,
+    observacoes: str | None = None,
+) -> str:
+    """
+    Lê preços de proposta_pricing, calcula via proposta_calc (determinístico),
+    grava em ordens_servico e retorna texto formatado para WhatsApp.
+    O gerar_proposta antigo permanece intacto — este tool nasce ao lado.
+    """
+    import proposta_calc
+    from decimal import Decimal
+    from datetime import date as _date
+
+    addons_req = addons or []
+
+    # ── 1. Lookup de preços no banco ────────────────────────────────────────
+    valor_plano_db = None
+    if plano:
+        valor_plano_db = await db.get_proposta_plano(restaurant_id, tipo, plano)
+        if valor_plano_db is None:
+            return (
+                f"⚠️ Plano '{plano}' ({tipo}) não encontrado na tabela de preços. "
+                f"Verifique com a Vic ou cadastre o plano em proposta_pricing."
+            )
+
+    valor_plano = Decimal(str(valor_plano_db)) if valor_plano_db is not None else Decimal("0")
+
+    # add-ons: remove 'wagyu' do lookup (sem preço fixo)
+    nomes_lookup = [a for a in addons_req if a != "wagyu"]
+    precos_addons_db = await db.get_proposta_addons(
+        restaurant_id, tipo, plano or "", nomes_lookup
+    )
+    precos_addons = {k: Decimal(str(v)) for k, v in precos_addons_db.items()}
+
+    valor_locacao_db = await db.get_proposta_ambiente(restaurant_id, ambiente)
+    if valor_locacao_db is None:
+        return (
+            f"⚠️ Ambiente '{ambiente}' não encontrado na tabela de preços. "
+            f"Verifique com a Vic ou cadastre o ambiente em proposta_pricing."
+        )
+    valor_locacao = Decimal(str(valor_locacao_db))
+
+    # ── 2. Cálculo determinístico (função pura) ─────────────────────────────
+    resultado = proposta_calc.calcular(
+        tipo=tipo,
+        plano=plano,
+        n_pessoas=n_pessoas,
+        valor_plano=valor_plano,
+        valor_locacao=valor_locacao,
+        addons_solicitados=addons_req,
+        precos_addons=precos_addons,
+    )
+
+    if not resultado["ok"]:
+        return f"⚠️ {resultado['erro']}"
+
+    # ── 3. Persistência ─────────────────────────────────────────────────────
+    data_br = ""
+    data_iso = None
+    if data:
+        target = _resolve_date(data)
+        if target:
+            data_br = target.strftime("%d/%m/%Y")
+            data_iso = target.isoformat()
+
+    addons_json = [
+        {"nome": a["nome"], "valor_pessoa": float(a["valor_pessoa"])}
+        for a in resultado["addons_aplicados"]
+    ]
+
+    try:
+        await db.criar_os_proposta({
+            "restaurant_id":  restaurant_id,
+            "cliente_phone":  user_phone,
+            "cliente_nome":   nome,
+            "tipo_evento":    tipo,
+            "data":           data_iso or _date.today().isoformat(),
+            "pessoas":        n_pessoas,
+            "valor_total":    float(resultado["total_base"]),
+            "valor_entrada":  float(resultado["sinal"]),
+            "status":         "proposta_enviada",
+            "plano":          plano,
+            "ambiente":       ambiente,
+            "addons":         addons_json,
+            "observacoes":    observacoes,
+        })
+        await db.upsert_contact({
+            "celular":        user_phone,
+            "estagio_kanban": "proposta",
+            "notas": (
+                f"Proposta: {tipo} {plano}, {n_pessoas}px, "
+                f"{ambiente}, R${float(resultado['total_base']):.0f}"
+            ),
+        })
+    except Exception as e:
+        print(f"[TOOL calcular_proposta] erro ao gravar OS: {e!r}")
+
+    # ── 4. Texto WhatsApp ───────────────────────────────────────────────────
+    r = resultado
+
+    def _fmt(slug: str) -> str:
+        return (slug or "").replace("_", " ").title()
+
+    addons_linhas = "".join(
+        f"\n• {_fmt(a['nome'])}: R$ {float(a['valor_pessoa']):.0f}/pessoa"
+        for a in r["addons_aplicados"]
+    )
+    wagyu_linha = (
+        "\n\n🥩 *Wagyu Experience:* valor sob consulta — a Vic confirma"
+        if r["wagyu_sob_consulta"] else ""
+    )
+    data_linha = f"📅 Data: {data_br}\n" if data_br else ""
+
+    return (
+        f"🍷 *Proposta Meet & Eat — {_fmt(tipo)}*\n\n"
+        f"{data_linha}"
+        f"👥 Pessoas: {n_pessoas}\n"
+        f"🏛️ Ambiente: {_fmt(ambiente)}\n"
+        f"📋 Plano: {_fmt(plano)}\n\n"
+        f"*Composição:*\n"
+        f"• Plano {_fmt(plano)}: R$ {float(r['valor_plano_pessoa']):.0f}/pessoa"
+        f"{addons_linhas}\n"
+        f"• Subtotal pessoas: R$ {float(r['subtotal_pessoas']):,.0f}\n"
+        f"• Locação {_fmt(ambiente)}: R$ {float(r['valor_locacao']):,.0f}\n"
+        f"━━━━━━━━━━━\n"
+        f"💰 *Total: R$ {float(r['total_base']):,.0f}*\n\n"
+        f"💳 *Pagamento:*\n"
+        f"  Sinal (reserva): R$ {float(r['sinal']):,.0f}\n"
+        f"  Saldo (até 1 sem. antes): R$ {float(r['saldo']):,.0f}\n\n"
+        f"ℹ️ Taxas adicionais: rolha R$ 150 | valet R$ 40/carro\n"
+        f"⏰ Proposta válida por 48h — posso garantir sua data agora?"
+        f"{wagyu_linha}"
+    )
