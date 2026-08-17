@@ -580,12 +580,13 @@ async def calcular_proposta(
 
     valor_plano = Decimal(str(valor_plano_db)) if valor_plano_db is not None else Decimal("0")
 
-    # add-ons: remove 'wagyu' do lookup (sem preço fixo)
-    nomes_lookup = [a for a in addons_req if a != "wagyu"]
     precos_addons_db = await db.get_proposta_addons(
-        restaurant_id, tipo, plano or "", nomes_lookup
+        restaurant_id, tipo, plano or "", addons_req
     )
-    precos_addons = {k: Decimal(str(v)) for k, v in precos_addons_db.items()}
+    precos_addons = {
+        k: {"valor": Decimal(str(v["valor"])), "sob_consulta": v["sob_consulta"]}
+        for k, v in precos_addons_db.items()
+    }
 
     valor_locacao_db = await db.get_proposta_ambiente(restaurant_id, ambiente)
     if valor_locacao_db is None:
@@ -660,9 +661,10 @@ async def calcular_proposta(
         f"\n• {_fmt(a['nome'])}: R$ {float(a['valor_pessoa']):.0f}/pessoa"
         for a in r["addons_aplicados"]
     )
+    sc_items = r.get("addons_sob_consulta", [])
     wagyu_linha = (
-        "\n\n🥩 *Wagyu Experience:* valor sob consulta — a Vic confirma"
-        if r["wagyu_sob_consulta"] else ""
+        "\n\n🥩 *" + ", ".join(_fmt(a["nome"]) for a in sc_items) + ":* valor sob consulta — a Vic confirma"
+        if sc_items else ""
     )
     data_linha = f"📅 Data: {data_br}\n" if data_br else ""
 

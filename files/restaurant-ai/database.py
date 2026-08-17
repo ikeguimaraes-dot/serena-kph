@@ -2527,21 +2527,21 @@ async def get_proposta_plano(rid: str, tipo: str, plano: str):
 
 
 async def get_proposta_addons(rid: str, tipo: str, plano: str, nomes: list) -> dict:
-    """Retorna {nome: valor} dos add-ons disponíveis para (tipo_evento, plano).
+    """Retorna {nome: {"valor": Decimal, "sob_consulta": bool}} dos add-ons disponíveis.
     Inclui add-ons sem plano específico (plano IS NULL = disponível em todos).
     """
     if not nomes:
         return {}
     async with pool().acquire() as c:
         rows = await c.fetch(
-            """SELECT nome, valor FROM proposta_pricing
+            """SELECT nome, valor, sob_consulta FROM proposta_pricing
                WHERE restaurant_id = $1 AND tipo = 'addon'
                  AND tipo_evento = $2
                  AND (plano = $3 OR plano IS NULL)
                  AND nome = ANY($4) AND ativo = true""",
             rid, tipo, plano, nomes,
         )
-        return {r["nome"]: r["valor"] for r in rows}
+        return {r["nome"]: {"valor": r["valor"], "sob_consulta": r["sob_consulta"]} for r in rows}
 
 
 async def get_proposta_ambiente(rid: str, ambiente: str):

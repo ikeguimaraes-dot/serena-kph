@@ -21,12 +21,15 @@ def calcular(
     valor_plano: Decimal,        # valor do plano por pessoa (do banco)
     valor_locacao: Decimal,      # locação fixa do ambiente (do banco)
     addons_solicitados: list,    # nomes dos add-ons pedidos pela IA
-    precos_addons: dict,         # nome → Decimal (lookup do banco)
+    precos_addons: dict,         # nome → {"valor": Decimal, "sob_consulta": bool}
 ) -> dict:
     """
     Retorna dict com breakdown completo da proposta.
     Nunca lança exceção — erros de negócio retornam {"ok": False, "codigo": ..., "erro": ...}.
     Toda aritmética em Decimal.
+
+    precos_addons: lookup da tabela proposta_pricing. Itens com sob_consulta=True são
+    excluídos do total e retornados em addons_sob_consulta para confirmação manual.
     """
 
     # ── VALIDAÇÕES ────────────────────────────────────────────────────────────
@@ -48,17 +51,20 @@ def calcular(
             "erro":   "Open bar não é vendido sem menu. Escolha um plano primeiro.",
         }
 
-    # ── WAGYU: flag, nunca entra no total ────────────────────────────────────
+    # ── ADD-ONS: aplicados (precificados) vs sob consulta ────────────────────
+    # Lê a flag sob_consulta do banco via precos_addons — qualquer item marcado
+    # como sob_consulta=True é separado e não entra no total (genérico, não só wagyu).
 
-    wagyu_sob_consulta = "wagyu" in addons_solicitados
-    nomes_a_calcular = [a for a in addons_solicitados if a != "wagyu"]
-
-    # ── ADD-ONS APLICÁVEIS ───────────────────────────────────────────────────
-
-    addons_aplicados = []
-    for nome in nomes_a_calcular:
-        if nome in precos_addons:
-            vaddr = _to_dec(precos_addons[nome])
+    addons_sob_consulta = []
+    addons_aplicados    = []
+    for nome in addons_solicitados:
+        if nome not in precos_addons:
+            continue
+        info = precos_addons[nome]
+        if info.get("sob_consulta", False):
+            addons_sob_consulta.append({"nome": nome})
+        else:
+            vaddr = _to_dec(info["valor"])
             addons_aplicados.append({
                 "nome":         nome,
                 "valor_pessoa": vaddr,
@@ -81,21 +87,21 @@ def calcular(
     saldo             = total_base * Decimal("0.5")
 
     return {
-        "ok":                True,
-        "tipo":              tipo,
-        "plano":             plano,
-        "n_pessoas":         n_pessoas,
-        "valor_plano_pessoa": vp,
-        "addons_aplicados":  addons_aplicados,
-        "wagyu_sob_consulta": wagyu_sob_consulta,
-        "valor_por_pessoa":  valor_por_pessoa,
-        "subtotal_pessoas":  subtotal_pessoas,
-        "valor_locacao":     vl,
-        "total_base":        total_base,
-        "sinal":             sinal,
-        "saldo":             saldo,
-        "validade_horas":    _VALIDADE_HORAS,
-        "taxas_fixas":       dict(_TAXAS_FIXAS),
+        "ok":                  True,
+        "tipo":                tipo,
+        "plano":               plano,
+        "n_pessoas":           n_pessoas,
+        "valor_plano_pessoa":  vp,
+        "addons_aplicados":    addons_aplicados,
+        "addons_sob_consulta": addons_sob_consulta,
+        "valor_por_pessoa":    valor_por_pessoa,
+        "subtotal_pessoas":    subtotal_pessoas,
+        "valor_locacao":       vl,
+        "total_base":          total_base,
+        "sinal":               sinal,
+        "saldo":               saldo,
+        "validade_horas":      _VALIDADE_HORAS,
+        "taxas_fixas":         dict(_TAXAS_FIXAS),
     }
 
 

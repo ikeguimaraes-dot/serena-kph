@@ -7,19 +7,24 @@ from decimal import Decimal
 import proposta_calc
 
 
-# ─── fixtures de pricing (valores da tabela proposta_pricing) ────────────────
+# ─── fixtures de pricing (espelha proposta_pricing no banco) ─────────────────
+# Formato: {nome: {"valor": Decimal, "sob_consulta": bool}}
 
 PRECOS_HH = {
-    "mini_pratos": Decimal("75.00"),
-    "sobremesa":   Decimal("45.00"),
+    "mini_pratos": {"valor": Decimal("75.00"),  "sob_consulta": False},
+    "sobremesa":   {"valor": Decimal("45.00"),  "sob_consulta": False},
 }
 
 PRECOS_EVENTO = {
-    "open_bar": Decimal("100.00"),   # standart
+    "open_bar": {"valor": Decimal("100.00"), "sob_consulta": False},   # standart
 }
 
 PRECOS_EVENTO_PREMIUM = {
-    "open_bar": Decimal("200.00"),   # premium
+    "open_bar": {"valor": Decimal("200.00"), "sob_consulta": False},   # premium
+}
+
+PRECOS_WAGYU = {
+    "wagyu": {"valor": Decimal("0"), "sob_consulta": True},  # lido da tabela
 }
 
 LOCACAO = {
@@ -49,7 +54,7 @@ def test_caso1_hh_premium_70px_rooftop_mini_pratos():
     assert r["total_base"]       == Decimal("67000.00")
     assert r["sinal"]            == Decimal("33500.00")
     assert r["saldo"]            == Decimal("33500.00")
-    assert r["wagyu_sob_consulta"] is False
+    assert r["addons_sob_consulta"] == []
 
 
 # ─── CASO 2 ─────────────────────────────────────────────────────────────────
@@ -121,14 +126,15 @@ def test_caso5_open_bar_sem_plano_erro():
         valor_plano=Decimal("0"),
         valor_locacao=Decimal("25000.00"),
         addons_solicitados=["open_bar"],
-        precos_addons={"open_bar": Decimal("200.00")},
+        precos_addons={"open_bar": {"valor": Decimal("200.00"), "sob_consulta": False}},
     )
     assert r["ok"] is False
     assert r["codigo"] == "open_bar_sem_plano"
 
 
 # ─── CASO 6 ─────────────────────────────────────────────────────────────────
-# Wagyu solicitado → flag sob_consulta, NÃO soma valor no total
+# Wagyu solicitado → lê sob_consulta=True DA TABELA, não entra no total
+# Valida que a lógica é genérica (flag do banco, não hardcode do nome)
 
 def test_caso6_wagyu_sob_consulta():
     r = proposta_calc.calcular(
@@ -138,10 +144,10 @@ def test_caso6_wagyu_sob_consulta():
         valor_plano=Decimal("555.00"),
         valor_locacao=Decimal("25000.00"),
         addons_solicitados=["wagyu"],
-        precos_addons={},  # wagyu não tem entrada no pricing
+        precos_addons=PRECOS_WAGYU,   # wagyu com sob_consulta=True, lido da tabela
     )
     assert r["ok"] is True
-    assert r["wagyu_sob_consulta"] is True
+    assert r["addons_sob_consulta"] == [{"nome": "wagyu"}]
     # total_base NÃO inclui wagyu: 30×555 + 25000 = 41650
     assert r["total_base"] == Decimal("41650.00")
 
