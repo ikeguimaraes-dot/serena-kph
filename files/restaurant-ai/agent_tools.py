@@ -100,24 +100,6 @@ TOOLS = [
         "valor_por_pessoa":{"type":"number","description":"Valor por pessoa em R$ (default 300)"},
         "observacoes":{"type":"string"}
      },"required":["nome","tipo_evento","pessoas"]}},
-    # Sprint 3 — tool determinístico (lê preços de proposta_pricing, não estima)
-    {"name":"calcular_proposta","description":(
-        "Calcula proposta de evento com valor EXATO buscado da tabela de preços (proposta_pricing). "
-        "Use para Happy Hour ou Evento quando o cliente quiser saber o valor — "
-        "nunca estime preço, sempre use este tool. "
-        "Coleta: tipo (happy_hour/evento), plano, n_pessoas (mín. 20), ambiente, add-ons desejados, data."
-     ),
-     "input_schema":{"type":"object","properties":{
-        "nome":       {"type":"string","description":"Nome do cliente"},
-        "tipo":       {"type":"string","enum":["happy_hour","evento"]},
-        "plano":      {"type":"string","description":"classic, premium ou standart (só evento)"},
-        "n_pessoas":  {"type":"integer","description":"Número de pessoas (mínimo 20)"},
-        "ambiente":   {"type":"string","description":"secret_bar, rooftop ou salao_prime"},
-        "data":       {"type":"string","description":"Data do evento (YYYY-MM-DD ou texto)"},
-        "addons":     {"type":"array","items":{"type":"string"},
-                       "description":"Add-ons opcionais: mini_pratos, sobremesa, open_bar, wagyu"},
-        "observacoes":{"type":"string"}
-     },"required":["nome","tipo","plano","n_pessoas","ambiente"]}},
 ]
 
 
