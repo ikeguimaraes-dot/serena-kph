@@ -2510,3 +2510,99 @@ async def toggle_checklist_item(item_id: str, concluido_por: str = "equipe") -> 
             novo, concluido_por, item_id
         )
         return dict(updated) if updated else None
+
+
+# ── Sprint 3 — proposta_pricing helpers ──────────────────────────────────────
+
+async def get_proposta_plano(rid: str, tipo: str, plano: str):
+    """Retorna valor/pessoa do plano, ou None se não cadastrado."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            """SELECT valor FROM proposta_pricing
+               WHERE restaurant_id = $1 AND tipo = 'plano'
+                 AND tipo_evento = $2 AND plano = $3 AND ativo = true""",
+            rid, tipo, plano,
+        )
+        return row["valor"] if row else None
+
+
+async def get_proposta_addons(rid: str, tipo: str, plano: str, nomes: list) -> dict:
+    """Retorna {nome: valor} dos add-ons disponíveis para (tipo_evento, plano).
+    Inclui add-ons sem plano específico (plano IS NULL = disponível em todos).
+    """
+    if not nomes:
+        return {}
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            """SELECT nome, valor FROM proposta_pricing
+               WHERE restaurant_id = $1 AND tipo = 'addon'
+                 AND tipo_evento = $2
+                 AND (plano = $3 OR plano IS NULL)
+                 AND nome = ANY($4) AND ativo = true""",
+            rid, tipo, plano, nomes,
+        )
+        return {r["nome"]: r["valor"] for r in rows}
+
+
+async def get_proposta_ambiente(rid: str, ambiente: str):
+    """Retorna valor de locação do ambiente, ou None se não cadastrado."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            """SELECT valor FROM proposta_pricing
+               WHERE restaurant_id = $1 AND tipo = 'ambiente'
+                 AND nome = $2 AND ativo = true""",
+            rid, ambiente,
+        )
+        return row["valor"] if row else None
+
+
+async def criar_os_proposta(data: dict) -> dict:
+    """Cria OS com campos Sprint 3: plano, ambiente, addons, proposta_validade."""
+    from datetime import date as _date, time as _time, datetime, timedelta, timezone
+    import json as _json
+
+    raw_data = data["data"]
+    if isinstance(raw_data, str):
+        try:
+            data_obj = _date.fromisoformat(raw_data)
+        except ValueError:
+            data_obj = _date.today()
+    else:
+        data_obj = raw_data
+
+    def _parse_time(val):
+        if val is None:
+            return None
+        if isinstance(val, str):
+            parts = [int(x) for x in val.split(":")]
+            return _time(parts[0], parts[1], parts[2] if len(parts) > 2 else 0)
+        return val
+
+    hora_obj = _parse_time(data.get("hora_inicio", "19:00"))
+    validade = datetime.now(timezone.utc) + timedelta(hours=48)
+
+    addons_raw = data.get("addons")
+    addons_json = _json.dumps(addons_raw) if addons_raw is not None else None
+
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            """INSERT INTO ordens_servico (
+                   restaurant_id, cliente_phone, cliente_nome,
+                   tipo_evento, data, hora_inicio, pessoas,
+                   valor_total, valor_entrada, status, observacoes,
+                   plano, ambiente, addons, proposta_validade
+               ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+               RETURNING *""",
+            data["restaurant_id"], data["cliente_phone"], data["cliente_nome"],
+            data["tipo_evento"], data_obj, hora_obj,
+            data["pessoas"],
+            float(data.get("valor_total", 0)),
+            float(data.get("valor_entrada", 0)),
+            data.get("status", "proposta_enviada"),
+            data.get("observacoes"),
+            data.get("plano"),
+            data.get("ambiente"),
+            addons_json,
+            validade,
+        )
+        return dict(row)
