@@ -1,10 +1,13 @@
 """
-Notificações via Twilio WhatsApp para a equipe.
-Adicione TWILIO_* no .env para ativar.
+Notificações para a equipe.
+- Discord webhook (primário): sem restrição de janela de 24h. Requer DISCORD_HANDOFF_WEBHOOK_URL.
+- Twilio WhatsApp (secundário): só funciona dentro de janela de 24h ativa. Requer TWILIO_*.
+Ambos best-effort: falha não quebra o handoff.
 """
 
 import os
-from typing import Optional
+import json
+import urllib.request
 
 _twilio_client = None
 
@@ -30,12 +33,41 @@ def notify_handoff(
     motivo: str,
     resumo: str,
 ):
-    """Avisa a equipe quando há transferência para humano."""
+    """Avisa a equipe quando há transferência para humano.
+
+    Tenta Discord (primário) e Twilio WhatsApp (secundário). Ambos best-effort.
+    """
+    # Discord — primário, sem restrição de janela de 24h
+    discord_url = os.environ.get("DISCORD_HANDOFF_WEBHOOK_URL")
+    if discord_url:
+        try:
+            partes = [
+                f"🚨 **Atendimento humano solicitado**",
+                f"**Restaurante:** {restaurant_nome}",
+                f"**Cliente:** {customer_phone}",
+                f"**Motivo:** {motivo}",
+            ]
+            if resumo:
+                partes.append(f"**Contexto:** {resumo[:300]}")
+            partes.append("<https://madonna-painel.vercel.app>")
+            payload = json.dumps({"content": "\n".join(partes)}).encode()
+            req = urllib.request.Request(
+                discord_url,
+                data=payload,
+                headers={"Content-Type": "application/json", "User-Agent": "Serena/1.0"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=5)
+            print(f"[HANDOFF] Discord OK — {restaurant_nome} | {customer_phone}")
+        except Exception as e:
+            print(f"[HANDOFF] Discord falhou (best-effort): {e!r}")
+
+    # Twilio WhatsApp — secundário (falha fora de janela de 24h, best-effort)
     client = _client()
     if not client:
-        print(f"[HANDOFF] {restaurant_nome} | {customer_phone} | {motivo}")
+        if not discord_url:
+            print(f"[HANDOFF] {restaurant_nome} | {customer_phone} | {motivo}")
         return
-
     body = (
         f"🚨 *Atendimento humano solicitado*\n\n"
         f"Restaurante: {restaurant_nome}\n"
@@ -46,11 +78,14 @@ def notify_handoff(
     )
     raw_from = os.environ.get("TWILIO_FROM_NUMBER", "")
     from_number = raw_from.replace("whatsapp:", "").strip()
-    client.messages.create(
-        from_=f"whatsapp:{from_number}",
-        to=f"whatsapp:{team_whatsapp}",
-        body=body,
-    )
+    try:
+        client.messages.create(
+            from_=f"whatsapp:{from_number}",
+            to=f"whatsapp:{team_whatsapp}",
+            body=body,
+        )
+    except Exception as e:
+        print(f"[HANDOFF] Twilio falhou (best-effort): {e!r}")
 
 def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     """Envia mensagem do atendente para o cliente via Twilio.
