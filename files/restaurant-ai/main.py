@@ -511,14 +511,6 @@ async def assumir_conversa(data: dict):
     hid = await db.create_handoff(user_phone, restaurant_id, f"Atendimento iniciado manualmente por {atendente}")
     await db.update_handoff_status(hid, "em_atendimento", atendente)
     print(f"[HANDOFF ASSUMIR] hid={hid} user={user_phone} restaurant={restaurant_id} atendente={atendente!r}")
-    try:
-        restaurant = await db.get_restaurant_full(restaurant_id)
-        team = await db.get_on_duty_team(restaurant_id)
-        for m in team[:2]:
-            notif.notify_handoff(m["whatsapp"], restaurant["nome"], user_phone,
-                                 f"Atendimento iniciado manualmente por {atendente}", "")
-    except Exception as e:
-        print(f"[HANDOFF ASSUMIR] notify falhou (best-effort): {e!r}")
     return {"id": hid, "status": "em_atendimento"}
 
 
@@ -1676,13 +1668,6 @@ async def widget_reserva(
     )
     try:
         await db.create_handoff(telefone, restaurant_id, motivo)
-        try:
-            restaurant = await db.get_restaurant_full(restaurant_id)
-            team = await db.get_on_duty_team(restaurant_id)
-            for m in team[:2]:
-                notif.notify_handoff(m["whatsapp"], restaurant["nome"], telefone, motivo, "")
-        except Exception as e:
-            print(f"[WIDGET] notify falhou (best-effort): {e!r}")
     except Exception:
         pass
 

@@ -869,7 +869,15 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
         row = await c.fetchrow("""
             INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo)
             VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
-    return row["id"]
+        hid = row["id"]
+        rest = await c.fetchrow("SELECT nome FROM restaurants WHERE id=$1", rid)
+    restaurant_nome = rest["nome"] if rest else rid
+    try:
+        import notifications as notif
+        notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
+    except Exception as e:
+        print(f"[HANDOFF] notify falhou (best-effort): {e!r}")
+    return hid
 
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
     q = """SELECT hs.*, ct.nome, ct.sobrenome

@@ -26,6 +26,39 @@ def _client():
     except Exception:
         return None
 
+def notify_handoff_discord(
+    restaurant_nome: str,
+    customer_phone: str,
+    motivo: str,
+    resumo: str = "",
+) -> None:
+    """Envia alerta de handoff para o canal Discord. Nunca lança exceção."""
+    discord_url = os.environ.get("DISCORD_HANDOFF_WEBHOOK_URL")
+    if not discord_url:
+        print(f"[HANDOFF] Discord não configurado — {restaurant_nome} | {customer_phone}")
+        return
+    try:
+        partes = [
+            "🚨 **Atendimento humano solicitado**",
+            f"**Restaurante:** {restaurant_nome}",
+            f"**Cliente:** {customer_phone}",
+            f"**Motivo:** {motivo}",
+        ]
+        if resumo:
+            partes.append(f"**Contexto:** {resumo[:300]}")
+        partes.append("<https://madonna-painel.vercel.app>")
+        payload = json.dumps({"content": "\n".join(partes)}).encode()
+        req = urllib.request.Request(
+            discord_url,
+            data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "Serena/1.0"},
+            method="POST",
+        )
+        urllib.request.urlopen(req, timeout=5)
+        print(f"[HANDOFF] Discord OK — {restaurant_nome} | {customer_phone}")
+    except Exception as e:
+        print(f"[HANDOFF] Discord falhou (best-effort): {e!r}")
+
 def notify_handoff(
     team_whatsapp: str,
     restaurant_nome: str,
@@ -33,40 +66,12 @@ def notify_handoff(
     motivo: str,
     resumo: str,
 ):
-    """Avisa a equipe quando há transferência para humano.
-
-    Tenta Discord (primário) e Twilio WhatsApp (secundário). Ambos best-effort.
+    """Twilio WhatsApp — reservado para quando houver template Meta aprovado.
+    Fora da janela de 24h retorna error 63016 (undelivered). Não usar para notificações
+    de equipe enquanto não houver content_sid aprovado.
     """
-    # Discord — primário, sem restrição de janela de 24h
-    discord_url = os.environ.get("DISCORD_HANDOFF_WEBHOOK_URL")
-    if discord_url:
-        try:
-            partes = [
-                f"🚨 **Atendimento humano solicitado**",
-                f"**Restaurante:** {restaurant_nome}",
-                f"**Cliente:** {customer_phone}",
-                f"**Motivo:** {motivo}",
-            ]
-            if resumo:
-                partes.append(f"**Contexto:** {resumo[:300]}")
-            partes.append("<https://madonna-painel.vercel.app>")
-            payload = json.dumps({"content": "\n".join(partes)}).encode()
-            req = urllib.request.Request(
-                discord_url,
-                data=payload,
-                headers={"Content-Type": "application/json", "User-Agent": "Serena/1.0"},
-                method="POST",
-            )
-            urllib.request.urlopen(req, timeout=5)
-            print(f"[HANDOFF] Discord OK — {restaurant_nome} | {customer_phone}")
-        except Exception as e:
-            print(f"[HANDOFF] Discord falhou (best-effort): {e!r}")
-
-    # Twilio WhatsApp — secundário (falha fora de janela de 24h, best-effort)
     client = _client()
     if not client:
-        if not discord_url:
-            print(f"[HANDOFF] {restaurant_nome} | {customer_phone} | {motivo}")
         return
     body = (
         f"🚨 *Atendimento humano solicitado*\n\n"
@@ -85,7 +90,7 @@ def notify_handoff(
             body=body,
         )
     except Exception as e:
-        print(f"[HANDOFF] Twilio falhou (best-effort): {e!r}")
+        print(f"[HANDOFF] Twilio falhou: {e!r}")
 
 def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     """Envia mensagem do atendente para o cliente via Twilio.
