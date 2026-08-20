@@ -234,15 +234,6 @@ class RestaurantAgent:
             handoff_motivo = response_text.replace("__HANDOFF__:", "").strip()
             hid = await db.create_handoff(user_phone, rid, handoff_motivo)
             print(f"[AGENT] Handoff criado id={hid} user={user_phone} motivo={handoff_motivo!r}")
-            team = await db.get_on_duty_team(rid)
-            if team:
-                import notifications as notif
-                for m in team[:2]:
-                    notif.notify_handoff(
-                        m["whatsapp"], restaurant["nome"],
-                        user_phone, handoff_motivo,
-                        "\n".join(f"{x['role']}: {x['content']}" for x in history[-4:])
-                    )
             response_text = (
                 "Vou te conectar com um de nossos atendentes agora. 🙏\n"
                 "Um momento, por favor."
