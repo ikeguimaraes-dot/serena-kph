@@ -203,13 +203,31 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     return False
 
 
-async def _process_and_reply(user_phone: str, restaurant_phone: str, message: str, profile_name: str):
+async def _process_and_reply(
+    user_phone: str, restaurant_phone: str, message: str, profile_name: str,
+    media_items: list | None = None,
+):
     """Processa mensagem via LLM e envia resposta via Twilio outbound.
 
     Roda em background para não bloquear o webhook além dos 15s de timeout do Twilio.
     None indica conversa em handoff — equipe já notificada pelo agent.process.
+    media_items: lista de {"url": str, "type": str} com mídia inbound do Twilio.
     """
     try:
+        # Upload do primeiro item de mídia para Supabase Storage (best-effort)
+        storage_url: str | None = None
+        storage_type: str | None = None
+        if media_items:
+            import media as media_mod
+            first = media_items[0]
+            try:
+                data, ct = await media_mod.download_twilio_media(first["url"])
+                storage_url = await media_mod.upload_private(data, ct, "inbound", user_phone)
+                storage_type = ct
+                print(f"[MEDIA] upload OK user={user_phone!r} type={ct!r}")
+            except Exception as e:
+                print(f"[MEDIA] upload falhou (best-effort): {e!r}")
+
         # Captura NPS antes de passar para o agente
         if await _tentar_capturar_nps(user_phone, message):
             nota = int(message.strip())
@@ -222,7 +240,10 @@ async def _process_and_reply(user_phone: str, restaurant_phone: str, message: st
             notif.send_to_customer(restaurant_phone, user_phone, resposta_nps)
             return
 
-        response_text = await agent.process(user_phone, restaurant_phone, message, profile_name=profile_name)
+        response_text = await agent.process(
+            user_phone, restaurant_phone, message, profile_name=profile_name,
+            media_url=storage_url, media_type=storage_type,
+        )
         if response_text is None:
             return
         notif.send_to_customer(restaurant_phone, user_phone, response_text)
@@ -235,12 +256,36 @@ async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
+    NumMedia: int = Form(0),
+    MediaUrl0: str = Form(""), MediaContentType0: str = Form(""),
+    MediaUrl1: str = Form(""), MediaContentType1: str = Form(""),
+    MediaUrl2: str = Form(""), MediaContentType2: str = Form(""),
 ):
+    print(f"[WEBHOOK] From={From!r} To={To!r} ProfileName={ProfileName!r} Body={Body!r} NumMedia={NumMedia}")
 
-    print(f"[WEBHOOK] From={From!r} To={To!r} ProfileName={ProfileName!r} Body={Body!r}")
+    # Coleta mídia inbound (Twilio envia até NumMedia itens, suportamos até 3)
+    _urls  = [MediaUrl0,         MediaUrl1,         MediaUrl2        ]
+    _types = [MediaContentType0, MediaContentType1, MediaContentType2]
+    media_items = [
+        {"url": _urls[i], "type": _types[i]}
+        for i in range(min(NumMedia, 3))
+        if _urls[i]
+    ]
+
     message = Body.strip()
-    if not message:
+
+    # Mensagem sem texto e sem mídia — ignorar (ex: read receipts)
+    if not message and not media_items:
         return _twiml_ack()
+
+    # Mensagem só com mídia: injeta descrição legível para o agente
+    if not message and media_items:
+        import media as media_mod
+        message = media_mod.describe_media(media_items[0]["type"])
+    elif message and media_items:
+        import media as media_mod
+        message = f"{message}\n{media_mod.describe_media(media_items[0]['type'])}"
+
     if len(message) > MAX_MSG_LEN:
         print(f"[WEBHOOK] mensagem descartada: tamanho {len(message)} > {MAX_MSG_LEN}")
         notif.send_to_customer(
@@ -258,7 +303,7 @@ async def whatsapp_webhook(
     # Retorna imediatamente para evitar timeout do Twilio (15s).
     # O processamento LLM + envio ocorrem em background via Twilio outbound.
     background_tasks.add_task(
-        _process_and_reply, user_phone, restaurant_phone, message, ProfileName
+        _process_and_reply, user_phone, restaurant_phone, message, ProfileName, media_items or None
     )
     return _twiml_ack()
 

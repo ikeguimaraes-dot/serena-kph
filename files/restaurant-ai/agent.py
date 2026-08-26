@@ -159,7 +159,10 @@ class RestaurantAgent:
             "intencao_detectada": _detect_intent(message),
         }
 
-    async def process(self, user_phone: str, restaurant_phone: str, message: str, profile_name: str = "") -> str:
+    async def process(
+        self, user_phone: str, restaurant_phone: str, message: str, profile_name: str = "",
+        media_url: str | None = None, media_type: str | None = None,
+    ) -> str:
         print(f"[AGENT] process user={user_phone!r} restaurant_phone={restaurant_phone!r} profile_name={profile_name!r}")
         
         agent_name_env = os.environ.get("AGENT_NAME")
@@ -214,7 +217,7 @@ class RestaurantAgent:
             print(f"[AGENT] ensure_contact falhou user={user_phone!r}: {e!r}")
 
         if await db.is_in_handoff(user_phone, rid):
-            await db.save_message(user_phone, rid, "user", message)
+            await db.save_message(user_phone, rid, "user", message, media_url, media_type)
             return None
 
         history = await db.get_history(user_phone, rid, MAX_HISTORY)
@@ -239,7 +242,7 @@ class RestaurantAgent:
                 "Um momento, por favor."
             )
 
-        await db.save_message(user_phone, rid, "user", message)
+        await db.save_message(user_phone, rid, "user", message, media_url, media_type)
         await db.save_message(user_phone, rid, "assistant", response_text)
 
         # ── Métricas (best-effort, não bloqueia resposta) ────

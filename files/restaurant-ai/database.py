@@ -760,11 +760,15 @@ async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: lis
 
 # ── Conversas ─────────────────────────────────────────────────
 
-async def save_message(user_phone: str, rid: str, role: str, content: str):
+async def save_message(
+    user_phone: str, rid: str, role: str, content: str,
+    media_url: str | None = None, media_type: str | None = None,
+):
     async with pool().acquire() as c:
         await c.execute(
-            "INSERT INTO conversations (user_phone,restaurant_id,role,content) VALUES ($1,$2,$3,$4)",
-            user_phone, rid, role, content)
+            "INSERT INTO conversations (user_phone,restaurant_id,role,content,media_url,media_type)"
+            " VALUES ($1,$2,$3,$4,$5,$6)",
+            user_phone, rid, role, content, media_url, media_type)
 
 async def get_history(user_phone: str, rid: str, limit: int = 20) -> list[dict]:
     async with pool().acquire() as c:
