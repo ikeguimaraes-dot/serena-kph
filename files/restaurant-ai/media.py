@@ -12,6 +12,12 @@ from datetime import datetime
 
 SUPABASE_URL = "https://fgntcrxuhfwcauvahaiz.supabase.co"
 BUCKET_ENTRADA = "serena-midia-entrada"
+BUCKET_SAIDA  = "serena-midia-saida"
+
+
+def get_public_url(storage_path: str) -> str:
+    """Monta URL pública de objeto no bucket de saída."""
+    return f"{SUPABASE_URL}/storage/v1/object/public/{BUCKET_SAIDA}/{storage_path}"
 
 
 def _service_key() -> str:

@@ -785,11 +785,12 @@ async def get_conversations_list(rid: str, limit: int = 50) -> list[dict]:
     por created_at DESC (mais recente primeiro)."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT user_phone, content, created_at, nome, sobrenome
+            SELECT user_phone, content, created_at, nome, sobrenome, role, media_url, media_type
             FROM (
                 SELECT DISTINCT ON (cv.user_phone)
                   cv.user_phone, cv.content, cv.created_at,
-                  ct.nome, ct.sobrenome
+                  ct.nome, ct.sobrenome,
+                  cv.role, cv.media_url, cv.media_type
                 FROM conversations cv
                 LEFT JOIN contacts ct ON ct.celular = cv.user_phone
                 WHERE cv.restaurant_id=$1
@@ -2618,3 +2619,24 @@ async def criar_os_proposta(data: dict) -> dict:
             validade,
         )
         return dict(row)
+
+
+# ── Mídia disponível ──────────────────────────────────────────
+
+async def get_midia_disponivel(restaurant_id: str, chave: str) -> dict | None:
+    """Busca item de mídia ativo pela chave. Retorna None se não encontrado ou inativo."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            "SELECT * FROM midia_disponivel WHERE restaurant_id=$1 AND chave=$2 AND ativo=true",
+            restaurant_id, chave,
+        )
+        return dict(row) if row else None
+
+
+async def get_restaurant_whatsapp(restaurant_id: str) -> str | None:
+    """Retorna somente o whatsapp_number do restaurante (lookup leve, sem joins)."""
+    async with pool().acquire() as c:
+        row = await c.fetchrow(
+            "SELECT whatsapp_number FROM restaurants WHERE id=$1", restaurant_id
+        )
+        return row["whatsapp_number"] if row else None

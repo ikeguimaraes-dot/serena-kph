@@ -688,3 +688,43 @@ async def calcular_proposta(
         f"⏰ Proposta válida por 48h — posso garantir sua data agora?"
         f"{wagyu_linha}"
     )
+
+
+async def enviar_midia(restaurant_id: str, user_phone: str, chave: str) -> str:
+    """Busca URL de mídia cadastrada pela chave e envia via Twilio (efeito colateral).
+    Retorna confirmação curta para o agente compor a resposta.
+    Best-effort: falha nunca quebra o fluxo.
+    """
+    import httpx
+    import notifications as notif
+
+    item = await db.get_midia_disponivel(restaurant_id, chave)
+    if not item:
+        return (
+            f"Não tenho '{chave}' disponível no momento. "
+            f"Vou confirmar com a equipe e te envio em seguida."
+        )
+
+    restaurant_phone = await db.get_restaurant_whatsapp(restaurant_id)
+    if not restaurant_phone:
+        return "Não consegui identificar o número do restaurante. Vou confirmar com a equipe."
+
+    url = item["url"]
+
+    # Validação de tamanho — best-effort, nunca bloqueia o envio
+    try:
+        async with httpx.AsyncClient() as c:
+            head = await c.head(url, timeout=5, follow_redirects=True)
+            size = int(head.headers.get("content-length", 0))
+            if size > 5 * 1024 * 1024:
+                print(f"[MIDIA] aviso: {chave!r} tem {size / 1024 / 1024:.1f}MB — recomendado <5MB")
+    except Exception as e:
+        print(f"[MIDIA] verificação de tamanho falhou (best-effort): {e!r}")
+
+    try:
+        notif.send_to_customer(restaurant_phone, user_phone, "", media_url=url)
+        print(f"[MIDIA] enviado chave={chave!r} url={url!r} para {user_phone!r}")
+        return f"✅ {item['descricao']} enviado!"
+    except Exception as e:
+        print(f"[MIDIA] falha ao enviar: {e!r}")
+        return "Não consegui enviar o arquivo agora. Vou confirmar com a equipe."

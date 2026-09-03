@@ -92,11 +92,17 @@ def notify_handoff(
     except Exception as e:
         print(f"[HANDOFF] Twilio falhou: {e!r}")
 
-def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
-    """Envia mensagem do atendente para o cliente via Twilio.
+def send_to_customer(
+    restaurant_number: str,
+    customer_phone: str,
+    message: str,
+    media_url: str | None = None,
+):
+    """Envia mensagem (e opcionalmente mídia) para o cliente via Twilio.
 
     Usa restaurant_number como remetente (número que recebeu a mensagem do cliente).
     Fallback para TWILIO_FROM_NUMBER apenas quando restaurant_number estiver vazio.
+    media_url: URL pública de arquivo (PDF, imagem) — entregue como anexo WhatsApp.
 
     Lança exceção em caso de falha — callers decidem como tratar:
       - _process_and_reply (background): captura e loga
@@ -111,9 +117,12 @@ def send_to_customer(restaurant_number: str, customer_phone: str, message: str):
     sender = raw_sender.replace("whatsapp:", "").strip()
     # Normaliza: garante formato E.164 no destinatário
     to_number = customer_phone if customer_phone.startswith("+") else f"+{customer_phone}"
-    msg = client.messages.create(
-        from_=f"whatsapp:{sender}",
-        to=f"whatsapp:{to_number}",
-        body=message,
-    )
+    kwargs: dict = {
+        "from_": f"whatsapp:{sender}",
+        "to": f"whatsapp:{to_number}",
+        "body": message,
+    }
+    if media_url:
+        kwargs["media_url"] = [media_url]
+    msg = client.messages.create(**kwargs)
     print(f"[MSG → {to_number}] Twilio OK sid={msg.sid}")
