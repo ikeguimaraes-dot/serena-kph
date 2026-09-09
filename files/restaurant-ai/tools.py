@@ -188,6 +188,37 @@ async def lookup_menu(restaurant_id: str, termo: str) -> str:
     return "\n".join(linhas)
 
 
+async def consultar_cardapio(restaurant_id: str, categoria: str | None = None) -> str:
+    """Retorna itens do cardápio (sem adega/vinhos). Agrupa por categoria se categoria=None."""
+    try:
+        items = await db.get_cardapio(restaurant_id, categoria)
+    except Exception as e:
+        print(f"[TOOL consultar_cardapio] erro: {e!r}")
+        return "Não consegui consultar o cardápio agora."
+
+    if not items:
+        if categoria:
+            return f"Nenhum item encontrado na categoria '{categoria}'."
+        return "Cardápio não disponível para este restaurante no momento."
+
+    # Agrupa por categoria para facilitar leitura pelo modelo
+    grupos: dict[str, list[str]] = {}
+    for it in items:
+        cat = it.get("categoria") or "Geral"
+        preco = it.get("preco")
+        preco_txt = f"R$ {float(preco):.0f}" if preco is not None else "sob consulta"
+        nome = it.get("nome") or "(sem nome)"
+        desc = (it.get("descricao") or "").strip()
+        linha = f"  • {nome} — {preco_txt}" + (f": {desc}" if desc else "")
+        grupos.setdefault(cat, []).append(linha)
+
+    partes = []
+    for cat, linhas in grupos.items():
+        partes.append(f"{cat}:")
+        partes.extend(linhas)
+    return "\n".join(partes)
+
+
 async def check_business_hours(restaurant_id: str, data: str) -> str:
     """Verifica funcionamento numa data específica (considerando datas_especiais)."""
     target = _resolve_date(data)

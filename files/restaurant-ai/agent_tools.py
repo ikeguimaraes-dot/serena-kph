@@ -117,6 +117,15 @@ TOOLS = [
                        "description":"Add-ons opcionais: mini_pratos, sobremesa, open_bar, wagyu"},
         "observacoes":{"type":"string"}
      },"required":["nome","tipo","plano","n_pessoas","ambiente"]}},
+    {"name":"consultar_cardapio","description":(
+        "Consulta o cardápio ao vivo para uma categoria específica ou o cardápio completo. "
+        "Use quando o cliente perguntar sobre um tipo de prato, preço de item ou opções disponíveis. "
+        "A adega e vinhos são excluídos automaticamente — nunca cite rótulos ou preços de vinho. "
+        "Preferir lookup_menu para buscar um item específico; usar consultar_cardapio para listar uma categoria inteira."
+     ),
+     "input_schema":{"type":"object","properties":{
+        "categoria":{"type":"string","description":"Categoria do cardápio (ex: 'Entradas', 'Secondi', 'Bar – Clássicos'). Omitir para retornar o cardápio completo."}
+     },"required":[]}},
 ]
 
 
@@ -220,6 +229,12 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
                 data=inputs.get("data"),
                 addons=inputs.get("addons", []),
                 observacoes=inputs.get("observacoes"),
+            )
+
+        if name == "consultar_cardapio":
+            return await tool_fns.consultar_cardapio(
+                restaurant_id=rid,
+                categoria=inputs.get("categoria"),
             )
 
         return f"Tool desconhecida: {name}"

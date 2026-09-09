@@ -22,7 +22,8 @@ Instruções pro Claude Code operar neste repositório.
 ## Comandos de deploy
 
 ```bash
-# Backend — Railway
+# Backend — Railway (SEMPRE rodar de dentro de files/restaurant-ai/)
+cd files/restaurant-ai
 railway up --service restaurant-ai --detach
 
 # Painel — Vercel (rodar de dentro de /painel/)
@@ -31,6 +32,8 @@ npx vercel --prod --yes
 ```
 
 **Railway CLI:** o `railway login` exige browser interativo. Se a sessão expirar, o usuário deve rodar `! railway login` no terminal. O `railway up --detach` (upload) ainda funciona sem login completo.
+
+**ATENÇÃO `railway up`:** o serviço tem `Root Directory = files/restaurant-ai` configurado no Railway (necessário para o deploy automático via GitHub). Se `railway up` for rodado da raiz do repo, o Railway não encontra o subdirectório e falha com "Root directory was not found". Sempre rode de dentro de `files/restaurant-ai/`.
 
 ---
 

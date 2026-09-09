@@ -224,6 +224,32 @@ async def get_menu_categories(rid: str) -> list[str]:
     return [r["categoria"] for r in rows if r["categoria"]]
 
 
+async def get_cardapio(rid: str, categoria: str | None = None) -> list[dict]:
+    """Retorna itens do cardápio, excluindo adega/vinhos (regra de ouro das três casas).
+    categoria: se fornecido, filtra por categoria exata. Caso contrário, retorna tudo disponível."""
+    async with pool().acquire() as c:
+        if categoria:
+            rows = await c.fetch("""
+                SELECT nome, categoria, descricao, preco
+                FROM menu_items
+                WHERE restaurant_id = $1
+                  AND disponivel = true
+                  AND LOWER(categoria) NOT LIKE '%adega%'
+                  AND LOWER(categoria) NOT LIKE '%vinho%'
+                  AND LOWER(categoria) = LOWER($2)
+                ORDER BY ordem, nome""", rid, categoria)
+        else:
+            rows = await c.fetch("""
+                SELECT nome, categoria, descricao, preco
+                FROM menu_items
+                WHERE restaurant_id = $1
+                  AND disponivel = true
+                  AND LOWER(categoria) NOT LIKE '%adega%'
+                  AND LOWER(categoria) NOT LIKE '%vinho%'
+                ORDER BY categoria, ordem, nome""", rid)
+    return [dict(r) for r in rows]
+
+
 async def get_business_hours_for_date(rid: str, target_date) -> dict:
     """target_date: date Python. Retorna dict {especial, aberto, horario, observacao, dia, data_iso, nome?}.
 
