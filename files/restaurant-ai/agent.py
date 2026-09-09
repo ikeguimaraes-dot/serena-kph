@@ -230,20 +230,24 @@ class RestaurantAgent:
             return None
 
         # Visão — injeta imagem no turno atual se tipo suportado e ≤5MB
+        # webp < 100KB → figurinha do WhatsApp; não gasta token com visão
         _VISION_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
         _vision_block = None
         if media_bytes and media_type and media_type.lower() in _VISION_TYPES:
             _sz = len(media_bytes)
-            if _sz <= 5 * 1024 * 1024:
+            _mt = media_type.lower()
+            if _mt == "image/webp" and _sz < 100 * 1024:
+                print(f"[VISION] webp {_sz//1024}KB — figurinha, ignorada")
+            elif _sz <= 5 * 1024 * 1024:
                 _vision_block = {
                     "type": "image",
                     "source": {
                         "type": "base64",
-                        "media_type": media_type.lower(),
+                        "media_type": _mt,
                         "data": base64.b64encode(media_bytes).decode("ascii"),
                     },
                 }
-                print(f"[VISION] injetada user={user_phone!r} type={media_type!r} size={_sz//1024}KB")
+                print(f"[VISION] injetada user={user_phone!r} type={_mt!r} size={_sz//1024}KB")
             else:
                 print(f"[VISION] ignorada — {_sz//1024}KB > 5120KB")
 
