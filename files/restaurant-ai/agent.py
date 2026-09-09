@@ -13,7 +13,7 @@ Sprint C2: agent.py refatorado em 4 módulos:
   agent.py         — classe RestaurantAgent + detectores + métricas
 """
 
-import os, re, asyncio, time, anthropic
+import os, re, asyncio, time, base64, anthropic
 
 from datetime import datetime
 import database as db
@@ -73,7 +73,15 @@ def _detect_intent(message: str) -> str:
 
 def _detect_pediu_humano(history: list[dict]) -> bool:
     for m in history[-3:]:
-        if m.get("role") == "user" and _RE_PEDIU_HUMANO.search(m.get("content", "") or ""):
+        if m.get("role") != "user":
+            continue
+        content = m.get("content") or ""
+        if isinstance(content, list):
+            content = " ".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        if _RE_PEDIU_HUMANO.search(content):
             return True
     return False
 
@@ -162,6 +170,7 @@ class RestaurantAgent:
     async def process(
         self, user_phone: str, restaurant_phone: str, message: str, profile_name: str = "",
         media_url: str | None = None, media_type: str | None = None,
+        media_bytes: bytes | None = None,
     ) -> str:
         print(f"[AGENT] process user={user_phone!r} restaurant_phone={restaurant_phone!r} profile_name={profile_name!r}")
         
@@ -220,8 +229,29 @@ class RestaurantAgent:
             await db.save_message(user_phone, rid, "user", message, media_url, media_type)
             return None
 
+        # Visão — injeta imagem no turno atual se tipo suportado e ≤5MB
+        _VISION_TYPES = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+        _vision_block = None
+        if media_bytes and media_type and media_type.lower() in _VISION_TYPES:
+            _sz = len(media_bytes)
+            if _sz <= 5 * 1024 * 1024:
+                _vision_block = {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": media_type.lower(),
+                        "data": base64.b64encode(media_bytes).decode("ascii"),
+                    },
+                }
+                print(f"[VISION] injetada user={user_phone!r} type={media_type!r} size={_sz//1024}KB")
+            else:
+                print(f"[VISION] ignorada — {_sz//1024}KB > 5120KB")
+
         history = await db.get_history(user_phone, rid, MAX_HISTORY)
-        history.append({"role":"user","content":message})
+        if _vision_block:
+            history.append({"role": "user", "content": [_vision_block, {"type": "text", "text": message}]})
+        else:
+            history.append({"role": "user", "content": message})
 
         system, prompt_versao_id = await build_prompt(restaurant, user_phone=user_phone)
 

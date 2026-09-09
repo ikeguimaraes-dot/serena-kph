@@ -214,19 +214,24 @@ async def _process_and_reply(
     media_items: lista de {"url": str, "type": str} com mídia inbound do Twilio.
     """
     try:
-        # Upload do primeiro item de mídia para Supabase Storage (best-effort)
+        # Download e upload do primeiro item de mídia (best-effort)
         storage_url: str | None = None
         storage_type: str | None = None
+        _vision_bytes: bytes | None = None
         if media_items:
             import media as media_mod
             first = media_items[0]
             try:
                 data, ct = await media_mod.download_twilio_media(first["url"])
-                storage_url = await media_mod.upload_private(data, ct, "inbound", user_phone)
                 storage_type = ct
-                print(f"[MEDIA] upload OK user={user_phone!r} type={ct!r}")
+                _vision_bytes = data  # bytes brutos para visão — independe do storage
+                try:
+                    storage_url = await media_mod.upload_private(data, ct, "inbound", user_phone)
+                    print(f"[MEDIA] upload OK user={user_phone!r} type={ct!r}")
+                except Exception as e:
+                    print(f"[MEDIA] upload falhou (best-effort): {e!r}")
             except Exception as e:
-                print(f"[MEDIA] upload falhou (best-effort): {e!r}")
+                print(f"[MEDIA] download falhou (best-effort): {e!r}")
 
         # Captura NPS antes de passar para o agente
         if await _tentar_capturar_nps(user_phone, message):
@@ -243,6 +248,7 @@ async def _process_and_reply(
         response_text = await agent.process(
             user_phone, restaurant_phone, message, profile_name=profile_name,
             media_url=storage_url, media_type=storage_type,
+            media_bytes=_vision_bytes,
         )
         if response_text is None:
             return
