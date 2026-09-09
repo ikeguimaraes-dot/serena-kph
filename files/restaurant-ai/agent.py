@@ -321,15 +321,18 @@ class RestaurantAgent:
                     if hasattr(b,"text"):
                         text = b.text
                         break
+                # Resposta vazia → degradar para handoff em vez de retornar mensagem inútil.
+                # Captura casos em que o modelo chamou tools mas não gerou texto final.
                 return {
-                    "text": text or "Desculpe, tente novamente.",
+                    "text": text or "__HANDOFF__:agente não gerou resposta — encaminhado para equipe",
                     "tokens_input": tokens_input,
                     "tokens_output": tokens_output,
                     "tools_called": tools_called,
                 }
 
+        # MAX_ITERATIONS esgotado → degradar para handoff também.
         return {
-            "text": "Estou com dificuldades técnicas. Tente novamente.",
+            "text": "__HANDOFF__:agente não conseguiu resolver após múltiplas tentativas",
             "tokens_input": tokens_input,
             "tokens_output": tokens_output,
             "tools_called": tools_called,
