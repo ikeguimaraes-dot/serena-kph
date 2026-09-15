@@ -18,12 +18,15 @@ _pool: Optional[asyncpg.Pool] = None
 
 async def init_db():
     global _pool
-    _pool = await asyncpg.create_pool(
-        dsn=os.environ["DATABASE_URL"],
-        min_size=2, max_size=10, command_timeout=30,
-        ssl="require",
-    )
-    print("✅ Supabase conectado")
+    try:
+        _pool = await asyncpg.create_pool(
+            dsn=os.environ["DATABASE_URL"],
+            min_size=2, max_size=10, command_timeout=30,
+            ssl="require",
+        )
+        print("✅ Supabase conectado")
+    except Exception as e:
+        print(f"⚠️ [DB] banco indisponível no startup: {e!r} — app sobe sem pool, fallback ativo")
 
 async def close_db():
     if _pool:
