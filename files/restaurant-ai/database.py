@@ -875,13 +875,34 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
             INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo)
             VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
         hid = row["id"]
-        rest = await c.fetchrow("SELECT nome FROM restaurants WHERE id=$1", rid)
-    restaurant_nome = rest["nome"] if rest else rid
+        rest = await c.fetchrow(
+            "SELECT nome, whatsapp_number FROM restaurants WHERE id=$1", rid)
+        # Rota 2 — gerente recebe WhatsApp direto quando motivo contém [LARA]
+        gerente = None
+        if "[LARA]" in (motivo or ""):
+            gerente = await c.fetchrow(
+                """SELECT whatsapp FROM team_members
+                   WHERE restaurant_id=$1 AND role='gerente' AND ativo=true
+                   LIMIT 1""",
+                rid)
+    restaurant_nome = (rest["nome"] if rest else rid) or rid
+    restaurant_wpp  = (rest["whatsapp_number"] if rest else "") or ""
     try:
         import notifications as notif
         notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
     except Exception as e:
-        print(f"[HANDOFF] notify falhou (best-effort): {e!r}")
+        print(f"[HANDOFF] Discord falhou (best-effort): {e!r}")
+    if gerente:
+        try:
+            import notifications as notif
+            notif.notify_escalacao_gerente(
+                from_number=restaurant_wpp,
+                gerente_whatsapp=gerente["whatsapp"],
+                customer_phone=user_phone,
+                motivo=motivo,
+            )
+        except Exception as e:
+            print(f"[HANDOFF] Escalacao gerente falhou (best-effort): {e!r}")
     return hid
 
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
