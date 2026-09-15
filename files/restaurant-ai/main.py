@@ -255,6 +255,14 @@ async def _process_and_reply(
         notif.send_to_customer(restaurant_phone, user_phone, response_text)
     except Exception as e:
         print(f"[WEBHOOK BG] erro ao processar/enviar user={user_phone!r}: {e!r}")
+        try:
+            notif.send_to_customer(
+                restaurant_phone, user_phone,
+                "Estamos em manutenção no momento. Nossa equipe retorna em breve! 🙏"
+            )
+            print(f"[WEBHOOK BG] fallback de manutenção enviado user={user_phone!r}")
+        except Exception as e2:
+            print(f"[WEBHOOK BG] fallback também falhou: {e2!r}")
 
 
 @app.post("/webhook/whatsapp", dependencies=[Depends(validate_twilio_signature)])
