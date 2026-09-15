@@ -1094,7 +1094,7 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
         if nome:
             await c.execute(
                 """INSERT INTO contacts (celular, nome, restaurant_id) VALUES ($1, $2, $3)
-                   ON CONFLICT (celular) DO UPDATE SET
+                   ON CONFLICT (celular, restaurant_id) DO UPDATE SET
                      nome = CASE WHEN contacts.nome IS NULL OR contacts.nome = ''
                                  THEN EXCLUDED.nome ELSE contacts.nome END,
                      restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
@@ -1103,7 +1103,7 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
         else:
             await c.execute(
                 """INSERT INTO contacts (celular, restaurant_id) VALUES ($1, $2)
-                   ON CONFLICT (celular) DO UPDATE SET
+                   ON CONFLICT (celular, restaurant_id) DO UPDATE SET
                      restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
                 celular, restaurant_id,
             )
@@ -1534,7 +1534,7 @@ async def update_serena_metric_categoria(metric_id: str, categoria: str):
         return
     async with pool().acquire() as c:
         await c.execute(
-            "UPDATE serena_metrics SET handoff_categoria=$2 WHERE id=$1",
+            "UPDATE serena_metrics SET handoff_categoria=$2 WHERE id::text=$1",
             metric_id, categoria)
 
 
