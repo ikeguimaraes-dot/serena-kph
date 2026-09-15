@@ -92,6 +92,43 @@ def notify_handoff(
     except Exception as e:
         print(f"[HANDOFF] Twilio falhou: {e!r}")
 
+
+def notify_escalacao_gerente(
+    from_number: str,
+    gerente_whatsapp: str,
+    customer_phone: str,
+    motivo: str,
+) -> None:
+    """WhatsApp direto para o gerente/diretora em casos de escalação (Rota 2).
+
+    Funciona dentro da janela de sessão ativa de 24h (o gerente deve ter enviado
+    ao menos uma mensagem para este número nas últimas 24h). Fallback silencioso
+    — Discord já foi notificado como backup antes desta chamada.
+
+    Quando template Meta Utility for aprovado: adicionar content_sid aqui e
+    remover a limitação de janela de 24h.
+    """
+    client = _client()
+    if not client:
+        print("[ESCALACAO] Twilio não configurado — fallback Discord")
+        return
+    sender = from_number.replace("whatsapp:", "").strip()
+    clean_motivo = motivo.replace("[LARA]:", "").replace("[LARA]", "").strip()
+    body = (
+        f"🔴 Atenção — ação necessária\n\n"
+        f"Paciente: {customer_phone}\n"
+        f"Motivo: {clean_motivo}"
+    )
+    try:
+        client.messages.create(
+            from_=f"whatsapp:{sender}",
+            to=f"whatsapp:{gerente_whatsapp}",
+            body=body,
+        )
+        print(f"[ESCALACAO] WhatsApp OK → {gerente_whatsapp}")
+    except Exception as e:
+        print(f"[ESCALACAO] WhatsApp falhou (best-effort, Discord ativo): {e!r}")
+
 def send_to_customer(
     restaurant_number: str,
     customer_phone: str,
