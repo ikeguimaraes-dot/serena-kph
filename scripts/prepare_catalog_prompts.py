@@ -10,6 +10,7 @@ PROTOCOL = """FONTES E ATENDIMENTO — CATÁLOGO RESTAURADO
 Antes de recomendar um item específico, informar preço, composição ou variante, consulte lookup_menu nesta unidade. Use o valor exato devolvido, com unidade/porção e opcionais correspondentes. Não arredonde, não use preço mínimo de outra variante e não gere preço de memória. Preço sob consulta não é gratuito.
 Item publicado não comprova estoque disponível agora. Itens desativados não devem ser oferecidos. Consulta vazia/erro significa informação indisponível: confirme com a equipe, sem concluir que o item não existe ou que a casa está lotada.
 Horários, endereço e exceções vêm do contexto dinâmico e de check_business_hours. Disponibilidade de reserva vem da ferramenta da agenda. Exemplos de fala não são disponibilidade real. Agenda não configurada ou consulta com erro não é falta de vagas.
+Para enviar a página de reserva, consulte get_reservation_link e use o link completo desta unidade. A página própria preserva o caminho oficial enquanto a agenda não estiver configurada. Não prometa que haverá vagas nem que o pedido será confirmado automaticamente.
 Só diga que uma reserva está confirmada quando a ferramenta retornar esse estado. Se retornar pendente, diga que foi registrada e aguarda confirmação da equipe. Não cancele uma reserva para tentar outra data; alteração que não possa ser feita com segurança deve ir para a equipe.
 Registre o handoff pela ferramenta antes de afirmar que a solicitação foi encaminhada. Não prometa prazo de retorno sem SLA comprovado. Continue respondendo quando o cliente chamar, mesmo fora do horário do salão.
 Não presuma consentimento para marketing porque o cliente iniciou uma conversa ou fez reserva. Mantenha a ficha e a conversa restritas a esta unidade.
@@ -62,6 +63,9 @@ Quando pedirem o cardápio completo, mantenha o link oficial: freneze.tagme.menu
                       '5. Para custo de refeição, consulte lookup_menu e apresente o preço atual com composição, porção e exclusões confirmadas na fonte.', body)
         body = body.replace('Se perguntarem, diga: "Sou a Stella, anfitriã da Frêneze."',
                             'Se perguntarem, esclareça: "Sou a Stella, anfitriã virtual da Frêneze."')
+    body = re.sub(r'https://reservation-widget\.tagme\.com\.br/[^\s"<>]+',
+                  f'https://madonna-painel.vercel.app/reservar/{rid}', body)
+    body = body.replace('envie o link do Tagme:', 'envie a página de reservas da casa:')
     if 'R$' in body or 'MODO SEGURO' in body or 'PLACEHOLDER' in body:
         raise ValueError('Inline price, placeholder or safe mode survived')
     return PROTOCOL + '\n' + body
@@ -71,7 +75,7 @@ def main():
     p.add_argument('--input-dir',type=Path,required=True)
     p.add_argument('--output-dir',type=Path,required=True)
     a=p.parse_args(); a.output_dir.mkdir(parents=True,exist_ok=True,mode=0o700)
-    for rid,version in [('meet_and_eat','v14-catalogo'),('madonna_cucina','v13-catalogo'),('freneze','v3-catalogo')]:
+    for rid,version in [('meet_and_eat','v15-catalogo-agenda'),('madonna_cucina','v14-catalogo-agenda'),('freneze','v4-catalogo-agenda')]:
         original=json.loads((a.input_dir/(rid+'-before.json')).read_text())
         updated=upgrade(rid,original['prompt_completo'])
         payload={'restaurant_id':rid,'versao':version,'prompt_completo':updated,'ativar':False,

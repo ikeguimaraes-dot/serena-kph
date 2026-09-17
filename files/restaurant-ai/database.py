@@ -1231,7 +1231,7 @@ async def list_contacts(
         conditions.append(f"tier=${len(params)}")
     if estagio:
         params.append(estagio)
-        conditions.append(f"estagio_kanban=${len(params)}")
+        conditions.append(f"CASE WHEN c.estagio_kanban='Novo Lead' THEN 'captacao' ELSE c.estagio_kanban END=${len(params)}")
     if ocasiao:
         params.append(ocasiao)
         conditions.append(f"${len(params)} = ANY(ocasiao)")
