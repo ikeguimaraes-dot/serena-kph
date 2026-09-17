@@ -320,6 +320,7 @@ class RestaurantAgent:
         tokens_output = 0
         tools_called: list[str] = []
         usage_calls = []
+        price_evidence = []
 
         for _ in range(MAX_ITERATIONS):
             response = await asyncio.to_thread(
@@ -363,6 +364,8 @@ class RestaurantAgent:
                             res = "MODO_TESTE_SEM_ESCRITA: ação não executada. Não confirme reserva, alteração ou envio."
                         else:
                             res = await execute_tool(b.name, b.input, user_phone, rid)
+                        if b.name in {'lookup_menu', 'calcular_proposta', 'gerar_proposta'}:
+                            price_evidence.append(str(res))
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})
                 continue
@@ -373,6 +376,9 @@ class RestaurantAgent:
                     if hasattr(b,"text"):
                         text = b.text
                         break
+                if rid in {'meet_and_eat', 'madonna_cucina', 'freneze'}:
+                    from response_evidence import check_prices
+                    text = check_prices(text, price_evidence)
                 return {
                     "text": text or "Desculpe, tente novamente.",
                     "tokens_input": tokens_input,
