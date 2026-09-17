@@ -1,0 +1,24 @@
+{
+  "captured_at_utc": "2026-09-17T04:28:28.210998+00:00",
+  "source_url": "https://www.meeteat.com.br/",
+  "http_status": 200,
+  "source_sha256": "3fc997aa3cd6b8e1e17eeceb194e8b0897ba6d1b3049688b10ad20fd3cc98516",
+  "public_links": {
+    "menu": "https://livemenu.app/menu/62ffd74ddaf31500126b3e29",
+    "orcamento_eventos": "https://wa.me/5511945511170"
+  },
+  "observation": "Contato publico de orcamento coincide com contato operacional salvo Vic Eventos Meet. Nenhum dado privado da agenda foi copiado.",
+  "capacity_conflict": {
+    "site_text_values": [
+      "160 pessoas em pe",
+      "100 confortavelmente sentadas",
+      "tres ambientes, cada um ate110"
+    ],
+    "book_mestre_values": [
+      "96 sentados",
+      "68 sentados",
+      "80 sentados"
+    ],
+    "resolution": "Manter capacidade do book/operacao; site publico precisa revisao humana antes de servir como fonte de capacidade."
+  }
+}
