@@ -1,0 +1,72 @@
+{
+  "estado": "REVISAO_PENDENTE_CARGA_NAO_AUTORIZADA",
+  "restaurant_id": "meet_and_eat",
+  "fontes_preservadas": true,
+  "source_url": "https://customers.tagme.com.br/dine-in/menu/62ffd74ddaf31500126b3e29/Dine-in?ignoreDisabled=1",
+  "fontes": [
+    {
+      "arquivo": "cardapio_meet_and_eat.csv",
+      "sha256": "ab5e6280decd070a58cb8937b47ec292a7804d8811a952273aa473273e724b31",
+      "bytes": 38849
+    },
+    {
+      "arquivo": "cardapio_meet_and_eat.json",
+      "sha256": "cb8ff68a8b96f70d1b82e2a4f39b323634ec2b0b4ce2d3dec8f296be7fa35bc6",
+      "bytes": 75927
+    },
+    {
+      "arquivo": "raw_meet_and_eat_5.json",
+      "sha256": "02902f7de833f62d81ae6705f09ba50f598b005d7f149154620b47e928de6135",
+      "bytes": 1152694
+    },
+    {
+      "arquivo": "cardapio_freneze.csv",
+      "sha256": "ed41a4735b1c5871943351df955dfbf92106aba1044a54fcc6a68f4844502490",
+      "bytes": 63
+    },
+    {
+      "arquivo": "cardapio_freneze.json",
+      "sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      "bytes": 2
+    },
+    {
+      "arquivo": "tela_freneze.png",
+      "sha256": "12199bcfcc821cd45e49275739ae4dde10b84174087d98ae0cb906ada99ec960",
+      "bytes": 4734851
+    }
+  ],
+  "contagens": {
+    "itens_meet": 277,
+    "categorias_meet": 46,
+    "linhas_opcoes_e_filhos": 203,
+    "itens_freneze": 0,
+    "sem_preco_meet": 0,
+    "preco_zero_ou_negativo_meet": 0
+  },
+  "sinalizacoes_por_item": {
+    "ADICIONAIS_OU_SABORES": 3,
+    "DESCRICAO_AUSENTE": 99,
+    "NOME_REPETIDO_EM_OUTRA_CATEGORIA": 6,
+    "OPCAO_ZERO_SEM_ROTULO": 2,
+    "PRECO_EM_OPCAO": 63,
+    "ROTULO_DE_OPCAO_FORA_DO_CSV_ORIGINAL": 28,
+    "TODOS_FILHOS_DA_OPCAO_DESATIVADOS": 1,
+    "VARIANTES_COM_PRECOS_DISTINTOS": 5
+  },
+  "artefatos": [
+    {
+      "arquivo": "meet_277_revisao.csv",
+      "sha256": "3d6a1982194f34d50802bb9e080281e3f25be6852f76c2b0e8a28e79b1d71188"
+    },
+    {
+      "arquivo": "meet_opcoes_revisao.csv",
+      "sha256": "c84778193301bcff1631a5802e8c4049367531f9a1e65f27f1daf70f54f515f1"
+    }
+  ],
+  "limites": [
+    "Disponibilidade comercial nao validada.",
+    "Frêneze: extracao nao concluida; JSON vazio nao prova catalogo vazio.",
+    "Madonna: sem catalogo ou URL valida nos arquivos locais examinados.",
+    "Aprovacao item a item de Ike obrigatoria; este script nao autoriza nem faz carga."
+  ]
+}

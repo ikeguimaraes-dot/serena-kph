@@ -41,7 +41,12 @@ TOOLS = [
      },"required":[]}},
     {"name":"lookup_menu","description":(
         "Busca pratos ou categorias no cardápio quando o cliente perguntar sobre comida, "
-        "bebida, opções vegetarianas, sem glúten, ou preço de item específico."
+        "bebida, opções vegetarianas, sem glúten, ou preço de item específico. "
+        "Use somente os itens e preços retornados. CATALOGO_INDISPONIVEL significa base vazia; "
+        "SEM_CORRESPONDENCIA significa busca sem resultado em catálogo cadastrado; "
+        "ERRO_CONSULTA_CATALOGO significa falha técnica. Nenhum desses estados comprova "
+        "inexistência do item, esgotamento ou lotação. Nesses casos, informe que não consegue "
+        "confirmar e ofereça atendimento humano, sem inventar itens ou preços."
      ),
      "input_schema":{"type":"object","properties":{
         "termo":{"type":"string","description":"Nome do prato, categoria ou restrição alimentar"}

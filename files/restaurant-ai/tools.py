@@ -155,21 +155,36 @@ async def update_contact(
 # ════════════════════════════════════════════════════════════════
 
 async def lookup_menu(restaurant_id: str, termo: str) -> str:
-    """Busca pratos no cardápio. Máx 5 itens. Indisponíveis aparecem por último."""
+    """Busca até 5 itens; distingue catálogo ausente, busca sem resultado e erro."""
+    orientacao_sem_dados = (
+        "Não invente itens ou preços nem conclua que o item não existe, está esgotado "
+        "ou que a casa está lotada. Explique que não consegue confirmar essa informação "
+        "e ofereça atendimento humano para verificar."
+    )
     try:
         items = await db.search_menu_items(restaurant_id, termo, limit=5)
-    except Exception as e:
-        print(f"[TOOL lookup_menu] erro: {e!r}")
-        return "Não consegui consultar o cardápio agora."
-
-    if not items:
-        try:
+        if not items:
+            # Categorias vazias não provam catálogo vazio: podem existir itens
+            # sem categoria ou indisponíveis. Consulte a existência no mesmo tenant.
+            if not await db.has_menu_items(restaurant_id):
+                return (
+                    "CATALOGO_INDISPONIVEL: A base de catálogo desta unidade está vazia; "
+                    "não há dados para confirmar itens, disponibilidade ou preços. "
+                    + orientacao_sem_dados
+                )
             cats = await db.get_menu_categories(restaurant_id)
-        except Exception:
-            cats = []
-        if cats:
-            return f"Não encontrei '{termo}' no cardápio. Temos: {', '.join(cats)}."
-        return f"Não encontrei '{termo}' no cardápio."
+            categorias = f" Categorias cadastradas: {', '.join(cats)}." if cats else ""
+            return (
+                f"SEM_CORRESPONDENCIA: Há catálogo cadastrado, mas a busca por '{termo}' "
+                "não encontrou registros correspondentes na base consultada."
+                + categorias + " " + orientacao_sem_dados
+            )
+    except Exception as e:
+        print(f"[TOOL lookup_menu] erro: {type(e).__name__}")
+        return (
+            "ERRO_CONSULTA_CATALOGO: Não foi possível consultar o catálogo agora. "
+            "A falha não informa se há catálogo cadastrado. " + orientacao_sem_dados
+        )
 
     linhas = []
     for it in items:
