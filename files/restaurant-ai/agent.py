@@ -143,7 +143,7 @@ class RestaurantAgent:
         """Roda 1 turno SEM persistir nada — para testes em /api/serena/test-message."""
         if prompt_body_override is not None:
             from agent_prompt import _dynamic_header
-            contact_block = await build_contact_context(user_phone)
+            contact_block = await build_contact_context(user_phone, restaurant["id"])
             system = _dynamic_header(restaurant, contact_block) + "\n" + prompt_body_override
             pid = "OVERRIDE"
         else:

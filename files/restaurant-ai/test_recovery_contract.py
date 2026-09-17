@@ -61,7 +61,7 @@ async def run():
         })
         assert reservation['cliente_phone'] == phone
         assert await db.get_reservas_por_phone(turn['restaurant_id'], phone)
-        assert await db.get_contact_reservations(phone)
+        assert await db.get_contact_reservations(phone, restaurant_id=turn["restaurant_id"])
         tree = ast.parse(Path(__file__).with_name('main.py').read_text())
         nps = next(n for n in tree.body if isinstance(n, ast.AsyncFunctionDef) and n.name == '_tentar_capturar_nps')
         namespace = {}

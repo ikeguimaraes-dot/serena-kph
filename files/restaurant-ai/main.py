@@ -34,7 +34,7 @@ from email_service import (
     send_proposta_enviada,
     send_comprovante_pagamento,
 )
-from tenancy import MULTI_TENANT_ENABLED, get_casas_permitidas  # Sprint White-Label C2
+from api_access import authorize_api_request, contact_tenant
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
@@ -101,7 +101,8 @@ def _start_weekly_cron():
     print("[CRON] weekly-report agendado: segunda 09h00 America/Sao_Paulo")
     return sch
 
-app = FastAPI(title="Restaurant AI — API", lifespan=lifespan)
+app = FastAPI(title="Restaurant AI — API", lifespan=lifespan,
+              dependencies=[Depends(authorize_api_request)])
 
 # CORS — whitelist em produção (env CORS_ORIGINS=comma,separated). Default seguro.
 _default_origins = "https://madonna-painel.vercel.app,https://madonna-cucina-painel.vercel.app,http://localhost:3000"
@@ -326,11 +327,10 @@ async def whatsapp_webhook(
 # ════════════════════════════════════════════════════════════════
 
 @app.get("/api/restaurants")
-async def list_restaurants(x_operator_id: Optional[str] = Header(None)):
-    if MULTI_TENANT_ENABLED and x_operator_id:
-        casas = await get_casas_permitidas(x_operator_id)
-        return [r for r in await db.get_all_restaurants() if r["id"] in casas]
-    return await db.get_all_restaurants()
+async def list_restaurants(request: Request):
+    rows = await db.get_all_restaurants()
+    scope = request.state.operator.get("restaurante_id")
+    return [r for r in rows if not scope or r["id"] == scope]
 
 @app.post("/api/restaurants", status_code=201)
 async def create_restaurant(data: RestaurantCreate):
@@ -786,12 +786,13 @@ async def reports_full(rid: str, days: int = 7):
 # ════════════════════════════════════════════════════════════════
 
 @app.post("/api/contacts", status_code=201)
-async def upsert_contact(data: ContactUpsert):
+async def upsert_contact(data: ContactUpsert, request: Request):
     """Cria ou atualiza contato pelo celular (upsert)."""
-    return await db.upsert_contact(data.model_dump(exclude_none=False))
+    return await db.upsert_contact(data.model_dump(exclude_none=False), restaurant_id=contact_tenant(request))
 
 @app.get("/api/contacts", dependencies=[Depends(require_admin)])
 async def list_contacts(
+    request: Request,
     tier: Optional[str] = None,
     estagio: Optional[str] = None,
     ocasiao: Optional[str] = None,
@@ -801,21 +802,21 @@ async def list_contacts(
 ):
     return await db.list_contacts(
         tier=tier, estagio=estagio, ocasiao=ocasiao,
-        tag=tag, opt_in=opt_in, limit=limit,
+        tag=tag, opt_in=opt_in, limit=limit, restaurant_id=contact_tenant(request),
     )
 
 @app.get("/api/contacts/search", dependencies=[Depends(require_admin)])
-async def search_contacts(q: str, limit: int = 50):
-    return await db.search_contacts(q, limit=limit)
+async def search_contacts(q: str, request: Request, limit: int = 50):
+    return await db.search_contacts(q, limit=limit, restaurant_id=contact_tenant(request))
 
 @app.get("/api/contacts/stats", dependencies=[Depends(require_admin)])
-async def contact_stats():
-    return await db.contact_stats()
+async def contact_stats(request: Request):
+    return await db.contact_stats(restaurant_id=contact_tenant(request))
 
 @app.get("/api/contacts/funil-stats", dependencies=[Depends(require_admin)])
-async def funil_stats():
+async def funil_stats(request: Request):
     """KPIs do funil comercial: leads/semana, score breakdown, metas."""
-    return await db.get_funil_stats()
+    return await db.get_funil_stats(restaurant_id=contact_tenant(request))
 
 @app.post("/api/contacts/mark-inactive", dependencies=[Depends(require_admin)])
 async def contacts_mark_inactive(threshold_days: int = 45):
@@ -824,32 +825,32 @@ async def contacts_mark_inactive(threshold_days: int = 45):
     return {"affected": affected}
 
 @app.get("/api/contacts/{celular}", dependencies=[Depends(require_admin)])
-async def get_contact(celular: str):
-    c = await db.get_contact(celular)
+async def get_contact(celular: str, request: Request):
+    c = await db.get_contact(celular, restaurant_id=contact_tenant(request))
     if not c:
         raise HTTPException(404, "Contato não encontrado")
     return c
 
 @app.get("/api/contacts/{celular}/reservations", dependencies=[Depends(require_admin)])
-async def contact_reservations(celular: str, limit: int = 20):
-    return await db.get_contact_reservations(celular, limit=limit)
+async def contact_reservations(celular: str, request: Request, limit: int = 20):
+    return await db.get_contact_reservations(celular, limit=limit, restaurant_id=contact_tenant(request))
 
 @app.get("/api/contacts/{celular}/conversations", dependencies=[Depends(require_admin)])
-async def contact_conversations(celular: str, limit: int = 100):
-    return await db.get_contact_conversations(celular, limit=limit)
+async def contact_conversations(celular: str, request: Request, limit: int = 100):
+    return await db.get_contact_conversations(celular, limit=limit, restaurant_id=contact_tenant(request))
 
 @app.patch("/api/contacts/{celular}")
-async def patch_contact(celular: str, data: ContactUpdate):
+async def patch_contact(celular: str, data: ContactUpdate, request: Request):
     payload = {k: v for k, v in data.model_dump().items() if v is not None}
-    c = await db.update_contact(celular, payload)
+    c = await db.update_contact(celular, payload, restaurant_id=contact_tenant(request))
     if not c:
         raise HTTPException(404)
     return c
 
 @app.patch("/api/contacts/{celular}/kanban", dependencies=[Depends(require_admin)])
-async def move_kanban(celular: str, data: ContactKanbanMove):
+async def move_kanban(celular: str, data: ContactKanbanMove, request: Request):
     try:
-        c = await db.move_contact_kanban(celular, data.estagio_kanban)
+        c = await db.move_contact_kanban(celular, data.estagio_kanban, restaurant_id=contact_tenant(request))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not c:
@@ -858,12 +859,12 @@ async def move_kanban(celular: str, data: ContactKanbanMove):
 
 
 @app.get("/api/contacts/{celular}/profile", dependencies=[Depends(require_admin)])
-async def contact_profile(celular: str, limit: int = 50):
+async def contact_profile(celular: str, request: Request, limit: int = 50):
     """Perfil combinado: dados do contato + últimas mensagens."""
-    contact = await db.get_contact(celular)
+    contact = await db.get_contact(celular, restaurant_id=contact_tenant(request))
     if not contact:
         raise HTTPException(404, "Contato não encontrado")
-    messages = await db.get_contact_conversations(celular, limit=limit)
+    messages = await db.get_contact_conversations(celular, limit=limit, restaurant_id=contact_tenant(request))
     return {**contact, "messages": messages}
 
 @app.patch("/api/handoff/{hid}/kanban")
@@ -994,7 +995,7 @@ async def serena_nurture(background_tasks: BackgroundTasks, dry_run: bool = Fals
             # Registra nas notas do contato
             nota = f"[Nurture automático enviado em {__import__('datetime').date.today()}]"
             notas_atuais = lead.get("notas") or ""
-            await db.update_contact(celular, {"notas": f"{notas_atuais}\n{nota}".strip()})
+            await db.update_contact(celular, {"notas": f"{notas_atuais}\n{nota}".strip()}, restaurant_id=lead["restaurant_id"])
             sent.append(celular)
         except Exception as e:
             errors.append({"celular": celular, "error": str(e)})
