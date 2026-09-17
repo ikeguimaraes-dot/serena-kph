@@ -1,0 +1,34 @@
+{
+  "verified_at": "2026-09-17T05:22:16.698927+00:00",
+  "duration_seconds": 9.69,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_export_restore.py",
+    "sha256": "f20507c2bb3aa4ecde15ba5d907ecd47dc0f727ef5b2cd12fe074d597b179eff",
+    "success": true
+  },
+  "integration_checks": [
+    {
+      "success": true,
+      "tables": 11,
+      "dry_run_contains_counts_only": true,
+      "same_phone_two_units_isolated": true,
+      "orphan_audit_history_preserved_by_own_unit": true,
+      "legacy_reservations_and_os_checklist_join_tenant_scoped": true,
+      "consistent_repeatable_read_snapshot_under_concurrent_write": true,
+      "read_only_transaction_verified": true,
+      "strict_column_allowlist": true,
+      "mode_0700_0600": true,
+      "jsonl_manifest_schema_checksums_and_zip_verified": true,
+      "overwrite_refused": true,
+      "exported_production_rows": 0,
+      "external_messages": 0
+    }
+  ],
+  "offline_tests_passed": 4
+}

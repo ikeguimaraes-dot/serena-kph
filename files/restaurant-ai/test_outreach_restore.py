@@ -20,9 +20,12 @@ async def run():
     pool=await asyncpg.create_pool(host=host,port=int(os.environ["PGPORT"]),user=os.environ["PGUSER"],database="serena_restore",ssl=False,min_size=1,max_size=5)
     db._pool=pool
     try:
-        migration=Path(__file__).with_name("migrations").joinpath("20260917044853_consented_outreach_outbox.sql").read_text()
+        migrations=Path(__file__).with_name("migrations")
         async with pool.acquire() as c:
-            await c.execute(migration); await c.execute(migration)
+            for name in ("20260917043459_ctwa_cache_commercial_reporting.sql", "20260917044853_consented_outreach_outbox.sql",
+                         "20260917045116_crm_loss_reason_history.sql", "20260917050855_reservation_outreach_schedule.sql"):
+                await c.execute((migrations/name).read_text())
+            await c.execute((migrations/"20260917050855_reservation_outreach_schedule.sql").read_text())
             assert await c.fetchval("SELECT count(*) FROM pg_class WHERE relname IN ('outreach_outbox','outreach_rules','outreach_consent_events') AND relrowsecurity")==3
             for table in ("outreach_outbox","outreach_rules","outreach_consent_events"):
                 assert not await c.fetchval("SELECT has_table_privilege('anon',$1,'SELECT')",table)
@@ -42,7 +45,7 @@ async def run():
         assert (await o.consent_history(a,phone))["eligible"]
         assert not (await o.consent_history(b,phone))["eligible"]
         # A booking in B cannot suppress A's otherwise eligible nurture event.
-        await db.criar_reserva({"restaurant_id":b,"cliente_phone":phone,"cliente_nome":"Synthetic","data":o.utcnow().date()+timedelta(days=1),"hora_inicio":"19:00","posicoes":1})
+        await db.criar_reserva({"restaurant_id":b,"cliente_phone":phone,"cliente_nome":"Synthetic","data":o.utcnow().date()+timedelta(days=1),"hora_inicio":"19:00","posicoes":1}, allow_legacy=True)
         approval=AsyncMock(return_value={"status":"approved","verified_at":o.utcnow()})
         with patch.object(o,"verify_template",approval):
             for stage in ("nurture_d3","d1"):

@@ -2,7 +2,7 @@
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-VERSION = "commercial-cohort-v2"
+VERSION = "commercial-cohort-v3"
 TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 FUNNEL_SQL = """
@@ -84,6 +84,68 @@ FROM serena_metrics WHERE restaurant_id=$1 AND horario_conversa >= $2 AND horari
 GROUP BY modelo_observado,tarifa_versao ORDER BY modelo_observado NULLS LAST,tarifa_versao NULLS LAST
 """
 
+COVERAGE_SQL = """
+WITH inbound AS (
+  SELECT user_phone, source_message_sid
+  FROM conversations
+  WHERE restaurant_id=$1 AND role='user' AND created_at >= $2 AND created_at < $3
+), metrics AS (
+  SELECT user_phone, source_message_sid, custo_status, custo_total_usd
+  FROM serena_metrics
+  WHERE restaurant_id=$1 AND horario_conversa >= $2 AND horario_conversa < $3
+)
+SELECT
+  (SELECT count(*) FROM inbound) AS mensagens_inbound,
+  (SELECT count(DISTINCT user_phone) FROM inbound) AS contatos_inbound,
+  (SELECT count(*) FROM inbound WHERE NULLIF(user_phone,'') IS NULL) AS mensagens_sem_telefone,
+  (SELECT count(*) FROM inbound WHERE NULLIF(source_message_sid,'') IS NULL) AS mensagens_sem_sid,
+  (SELECT count(*) FROM inbound c WHERE EXISTS (
+    SELECT 1 FROM metrics m WHERE m.user_phone=c.user_phone
+      AND m.source_message_sid=c.source_message_sid
+      AND NULLIF(c.source_message_sid,'') IS NOT NULL
+  )) AS mensagens_com_metricas,
+  (SELECT count(*) FROM metrics) AS metricas,
+  (SELECT count(*) FROM metrics WHERE custo_status IS DISTINCT FROM 'complete'
+    OR custo_total_usd IS NULL OR custo_total_usd < 0) AS metricas_sem_custo_completo,
+  (SELECT count(*) FROM metrics m WHERE NOT EXISTS (
+    SELECT 1 FROM inbound c WHERE c.user_phone=m.user_phone
+      AND c.source_message_sid=m.source_message_sid
+      AND NULLIF(m.source_message_sid,'') IS NOT NULL
+  )) AS metricas_sem_vinculo_inbound_periodo
+"""
+
+PROMPT_COST_SQL = """
+SELECT m.prompt_versao_id, p.versao, (p.id IS NOT NULL) AS versao_resolvida,
+  count(*) AS turnos, count(DISTINCT m.user_phone) AS contatos_com_metricas,
+  count(*) FILTER (WHERE m.intencao_detectada IN ('reserva_nova','evento')) AS turnos_com_intencao,
+  count(DISTINCT m.user_phone) FILTER (
+    WHERE m.intencao_detectada IN ('reserva_nova','evento')) AS contatos_com_intencao,
+  count(*) FILTER (WHERE m.custo_status='complete' AND m.custo_total_usd IS NOT NULL) AS turnos_custo_completo,
+  sum(m.custo_total_usd) FILTER (WHERE m.custo_status='complete') AS custo_observado_usd,
+  sum(m.custo_usd) AS custo_legacy_sem_cache_usd,
+  array_agg(DISTINCT m.modelo_observado) FILTER (WHERE m.modelo_observado IS NOT NULL) AS modelos_observados
+FROM serena_metrics m
+LEFT JOIN serena_prompt_versions p ON p.id=m.prompt_versao_id AND p.restaurant_id=m.restaurant_id
+WHERE m.restaurant_id=$1 AND m.horario_conversa >= $2 AND m.horario_conversa < $3
+GROUP BY m.prompt_versao_id,p.id,p.versao
+ORDER BY m.prompt_versao_id NULLS LAST
+"""
+
+
+def _coverage(raw: dict) -> dict:
+    """Coverage of persisted main-agent metrics, never of a complete provider bill."""
+    result = dict(raw)
+    inbound = result["mensagens_inbound"]
+    result["mensagens_sem_metricas"] = inbound - result["mensagens_com_metricas"]
+    complete = bool(inbound and result["contatos_inbound"] and result["metricas"]
+                    and not result["mensagens_sem_metricas"] and not result["mensagens_sem_sid"]
+                    and not result["mensagens_sem_telefone"]
+                    and not result["metricas_sem_custo_completo"]
+                    and not result["metricas_sem_vinculo_inbound_periodo"])
+    result["status"] = "complete" if complete else "incomplete" if inbound or result["metricas"] else "no_data"
+    result["inbound_com_metricas_pct"] = round(result["mensagens_com_metricas"] * 100 / inbound, 2) if inbound else None
+    return result
+
 
 def _numbers(row):
     from decimal import Decimal
@@ -107,6 +169,8 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
             funnel = _numbers(await connection.fetchrow(FUNNEL_SQL, restaurant_id, first, last))
             reservations = _numbers(await connection.fetchrow(RESERVATIONS_SQL, restaurant_id, first, last))
             costs = [_numbers(row) for row in await connection.fetch(COST_SQL, restaurant_id, first, last)]
+            coverage = _coverage(_numbers(await connection.fetchrow(COVERAGE_SQL, restaurant_id, first, last)))
+            prompt_costs = [_numbers(row) for row in await connection.fetch(PROMPT_COST_SQL, restaurant_id, first, last)]
             losses = [_numbers(row) for row in await connection.fetch("""
                 SELECT loss_reason AS motivo,count(*) AS eventos,count(DISTINCT contact_id) AS contatos
                 FROM contact_stage_events WHERE restaurant_id=$1
@@ -121,13 +185,18 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
     funnel["conversao_intencao_para_confirmacao_pct"] = (
         round(funnel["contatos_com_confirmacao_ou_desfecho"] * 100 / intents, 2) if intents else None)
     observed = [item["custo_observado_usd"] for item in costs if item["custo_observado_usd"] is not None]
+    total_observed = round(sum(observed), 10) if observed else None
+    per_contact = (round(total_observed / coverage["contatos_inbound"], 10)
+                   if coverage["status"] == "complete" and total_observed is not None else None)
     return {
         "report_version": VERSION, "restaurant_id": restaurant_id,
         "unidade": dict(business), "perdas_registradas_no_periodo": losses,
         "periodo": {"inicio_inclusivo": start.isoformat(), "fim_exclusivo": end.isoformat(), "timezone": str(TIMEZONE)},
         "funil_por_contato": funnel, "reservas_criadas_no_periodo_status_atual": reservations,
         "custo_llm": {"moeda": "USD", "por_modelo_observado": costs,
-                     "total_observado_usd": round(sum(observed), 10) if observed else None,
+                     "total_observado_usd": total_observed,
+                     "custo_por_contato_usd": per_contact, "cobertura": coverage,
+                     "por_prompt_versao": prompt_costs,
                      "turnos_sem_custo_completo": sum(item["turnos"] - item["turnos_custo_completo"] for item in costs)},
         "receita_realizada_brl": None, "custo_twilio_usd": None, "roi": None,
         "definicoes": {
@@ -136,7 +205,9 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
             "proposta": "Contato com ordem de serviço registrada após intenção no período, em proposta_enviada, entrada_paga, confirmado ou realizado. Registro não comprova envio nem leitura da proposta; não é etapa obrigatória para reserva de mesa.",
             "confirmacao_ou_desfecho": "Reserva criada após a intenção e antes do fim; status atual confirmada, realizada, concluida ou no_show. Este relatório usa o estado atual, não reconstitui a data de confirmação.",
             "perdas": "Novas transições explícitas para perdido no período; cada reabertura e nova perda pode produzir outro evento. Sem backfill de eventos anteriores à implantação.",
-            "persona": "Nome atual configurado na unidade; não atribui retroativamente uma versão de persona às conversas antigas.",
+            "persona": "Nome em unidade é a configuração atual. por_prompt_versao usa apenas prompt_versao_id gravado na métrica e versão associada à mesma unidade; versão ausente/inválida fica sem rótulo histórico.",
+            "custo_por_contato": "Custo observado do agente principal dividido por contatos inbound distintos da mesma unidade/período, somente com cobertura integral: cada inbound ligado por SID a métrica do período, todos custos completos e nenhuma métrica sem inbound correspondente. Handoff sem métrica, falha ou ausência de SID bloqueiam a média; não são custo zero. Inclui todas as tentativas instrumentadas do mesmo SID.",
+            "por_prompt_versao": "Agrupa turnos, contatos, intenções e custo pelas versões registradas nas métricas. Contato pode aparecer em mais de uma versão; não somar contatos entre grupos. Não atribui reservas/receita a uma versão por aproximação temporal ou pelo nome atual da persona.",
             "desfechos": "Status atual das reservas criadas no período, não quantidade de visitas ocorridas no período. Concluida legado conta como realizada. Um contato pode ter mais de um desfecho.",
             "atribuicao": "Último referral não vazio da mesma unidade e telefone nos 7 dias anteriores à criação. Snapshot sem retroatividade.",
         },
@@ -146,6 +217,7 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
             "Custos Twilio não foram coletados; não estimar nem tratar como zero.",
             "Custos novos cobrem turnos gravados do agente principal com usage/modelo observados. Falhas antes da gravação, classificação de handoff, relatório LLM e outras integrações ainda não estão neste custo.",
             "Métricas históricas sem cache/modelo são apresentadas como legacy, sem recalcular retroativamente.",
+            "Cobertura completa significa vínculo entre inbound e métricas persistidas, não completude de faturamento ou prova de que nenhuma chamada ao provedor deixou de ser gravada.",
             "CTWA e ligação de intenção dependem de instrumentação; ausência não prova origem orgânica nem ausência de intenção.",
             "Sem SID vinculado, a intenção usa horário da métrica e pode omitir reserva criada antes da gravação dessa métrica.",
         ],

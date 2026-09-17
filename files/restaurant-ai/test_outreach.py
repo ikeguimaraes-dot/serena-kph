@@ -9,9 +9,22 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
 import outreach as o
+import outreach_scheduler as scheduler
 
 
 class ContractTests(unittest.TestCase):
+    def test_reservation_mapping_and_window_are_explicit(self):
+        mapping = {"name": "nome", "business": "unidade", "date": "data", "time": "hora"}
+        self.assertTrue(o.valid_reservation_mapping(mapping))
+        for invalid in ({"1": "nome"}, {**mapping, "bad key": "nome"}, {"1": {"secret": "value"}}, []):
+            self.assertFalse(o.valid_reservation_mapping(invalid))
+        for change in ({"template_variables": {"1": "secret"}}, {"reminder_hours_before": 2},
+                       {"reminder_window_minutes": 1441}, {"reminder_hours_before": 0}):
+            with self.assertRaises(ValidationError):
+                o.RuleChange(**change)
+        self.assertEqual(o.RuleChange().reminder_hours_before, 24)
+        self.assertEqual(o.RuleChange().reminder_window_minutes, 240)
+
     def test_explicit_consent_validation(self):
         base = {"granted": True, "source": "whatsapp_explicit", "occurred_at": o.utcnow()-timedelta(minutes=1), "evidence": "Mensagem explícita de autorização"}
         self.assertTrue(o.ConsentChange(**base).granted)
@@ -69,6 +82,22 @@ class DeliveryTests(unittest.IsolatedAsyncioTestCase):
                 if status=="approved": self.assertEqual((await o.verify_template("HX"+"a"*32))["status"],"approved")
                 else:
                     with self.assertRaises(HTTPException): await o.verify_template("HX"+"a"*32)
+
+    async def test_reservation_template_variables_match_exactly(self):
+        mapping = {"2": "hora", "4": "nome", "7": "unidade", "9": "data"}
+        with patch.object(o, "provider_credentials", return_value=("AC"+"c"*32, "synthetic")):
+            with self.transport(lambda _: httpx.Response(200, json={"variables": {key: "Example" for key in mapping}})):
+                await o.verify_reservation_variables("HX"+"a"*32, mapping)
+            for variables in ({"1": "missing"}, {**mapping, "extra": "value"}, None):
+                with self.transport(lambda _: httpx.Response(200, json={"variables": variables})):
+                    with self.assertRaises(HTTPException):
+                        await o.verify_reservation_variables("HX"+"a"*32, mapping)
+
+    async def test_scheduler_defaults_off_without_database_or_sends(self):
+        with patch.dict("os.environ", {}, clear=True), patch.object(scheduler.db, "pool") as pool:
+            self.assertIsNone(scheduler.start_scheduler())
+            self.assertEqual(await scheduler.scheduled_tick(), {"enabled": False, "units": 0, "runs": []})
+            pool.assert_not_called()
 
     async def test_default_and_disabled_runs_only_preview(self):
         for dry,enabled in ((True,True),(True,False),(False,False)):

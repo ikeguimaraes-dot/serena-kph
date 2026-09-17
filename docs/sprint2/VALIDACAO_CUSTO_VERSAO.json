@@ -1,0 +1,43 @@
+{
+  "verified_at": "2026-09-17T05:20:43.256985+00:00",
+  "duration_seconds": 12.32,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_instrumentation_restore.py",
+    "sha256": "af6b8081db60b1c6eee3594af562d97e41583ecd1c051842edf8b3a78376a629",
+    "success": true
+  },
+  "integration_assertions": {
+    "success": true,
+    "migration_replay": true,
+    "legacy_cost_preserved": true,
+    "sid_persistence_idempotency": true,
+    "same_text_distinct_or_missing_sid_preserved": true,
+    "ctwa_same_tenant_last_touch_7d": true,
+    "future_expired_and_retroactive_attribution_rejected": true,
+    "funnel_and_cost_tenant_isolation": true,
+    "existing_outcome_statuses_work": true,
+    "same_turn_reservation_before_metric_is_counted": true,
+    "proposal_funnel_uses_real_os_and_tenant_scope": true,
+    "per_contact_cost_requires_full_observed_coverage": true,
+    "missing_legacy_or_unlinked_cost_keeps_mean_null": true,
+    "duplicate_sid_metrics_preserve_observed_retry_cost": true,
+    "prompt_versions_use_recorded_id_and_tenant_join": true,
+    "prompt_metrics_never_use_current_persona_as_history": true,
+    "weekly_sql_and_ltv_tenant_scope": true,
+    "external_messages_sent": 0
+  },
+  "offline_tests": {
+    "instrumentation_regressions": 9,
+    "result": "PASS",
+    "external_messages_sent": 0,
+    "paid_model_calls": 0
+  },
+  "production_changes_by_this_task": false,
+  "report_version": "commercial-cohort-v3"
+}

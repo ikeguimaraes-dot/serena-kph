@@ -1,0 +1,30 @@
+[
+  {
+    "name": "serena_reservation_confirmation_pt_br_v1",
+    "sid": "HXc5378a3bd3fab82c4e1e7c289a054326",
+    "body": "Olá, {{1}}. Sua reserva em {{2}} está confirmada para {{3}}, às {{4}}. Para ajustar ou cancelar, responda a esta mensagem.",
+    "variable_map": {
+      "1": "nome",
+      "2": "unidade",
+      "3": "data",
+      "4": "hora"
+    },
+    "approval_status_observed": "pending",
+    "category_observed": "UTILITY",
+    "messages_sent": 0
+  },
+  {
+    "name": "serena_reservation_reminder_pt_br_v1",
+    "sid": "HXf0e4708a7b1c5762397573fdcacecc85",
+    "body": "Olá, {{1}}. Lembramos da sua reserva em {{2}} para {{3}}, às {{4}}. Se precisar ajustar ou cancelar, responda a esta mensagem.",
+    "variable_map": {
+      "1": "nome",
+      "2": "unidade",
+      "3": "data",
+      "4": "hora"
+    },
+    "approval_status_observed": "pending",
+    "category_observed": "UTILITY",
+    "messages_sent": 0
+  }
+]
