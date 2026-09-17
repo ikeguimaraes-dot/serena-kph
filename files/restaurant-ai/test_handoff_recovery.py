@@ -29,15 +29,22 @@ class HandoffRoutingTests(unittest.IsolatedAsyncioTestCase):
             self.queries.append((query, args))
             if "INSERT INTO handoff_sessions" in query:
                 return {"id": 42}
+            if "SELECT id FROM handoff_sessions" in query:
+                return None
             if self.lookup_error:
                 raise RuntimeError("lookup unavailable")
-            if "FROM restaurants" in query:
-                return self.restaurant
             if "FROM team_members" in query:
                 return self.manager
+            if "FROM restaurants" in query:
+                return self.restaurant
             raise AssertionError("Unexpected database query")
 
-        self.connection = SimpleNamespace(fetchrow=AsyncMock(side_effect=fetchrow))
+        @asynccontextmanager
+        async def transaction():
+            yield
+
+        self.connection = SimpleNamespace(fetchrow=AsyncMock(side_effect=fetchrow),
+                                          execute=AsyncMock(return_value="UPDATE 1"),transaction=transaction)
 
         @asynccontextmanager
         async def acquire():
@@ -46,7 +53,7 @@ class HandoffRoutingTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(patch.stopall)
         patch.object(db, "pool", return_value=SimpleNamespace(acquire=acquire)).start()
         self.discord = patch.object(notif, "notify_handoff_discord", return_value=True).start()
-        self.clinical = patch.object(notif, "notify_escalacao_gerente", return_value=True).start()
+        self.clinical = patch.object(notif, "notify_escalacao_gerente", return_value=notif.NotificationResult("accepted","SM"+"a"*32,"queued")).start()
         self.stdout = io.StringIO()
         self.redirect = redirect_stdout(self.stdout)
         self.redirect.__enter__()
@@ -113,7 +120,7 @@ class NotificationTests(unittest.TestCase):
         self.addCleanup(patch.stopall)
         patch.dict(os.environ, {}, clear=True).start()
         self.client = Mock()
-        self.client.messages.create.return_value = SimpleNamespace(sid="SM-test", status="queued")
+        self.client.messages.create.return_value = SimpleNamespace(sid="SM"+"a"*32, status="queued")
         self.client_factory = patch.object(notif, "_client", return_value=self.client).start()
         self.urlopen = patch.object(notif.urllib.request, "urlopen").start()
         self.stdout = io.StringIO()
@@ -175,6 +182,27 @@ class NotificationTests(unittest.TestCase):
         self.client.messages.create.side_effect = RuntimeError("Twilio failure")
         with self.assertRaisesRegex(RuntimeError, "Twilio failure"):
             notif.send_to_customer("+15550000001", "+15550000003", "Resposta")
+
+    def test_same_sender_is_never_notified_or_replied_to(self):
+        self.assertFalse(self.clinical_alert(manager="whatsapp:+1 (555) 000-0001"))
+        with self.assertRaises(ValueError):
+            notif.send_to_customer("+15550000001","15550000001","Resposta")
+        self.client.messages.create.assert_not_called()
+
+    def test_no_twilio_or_no_sid_cannot_report_human_reply_success(self):
+        self.client_factory.return_value=None
+        with self.assertRaises(RuntimeError):
+            notif.send_to_customer("+15550000001","+15550000003","Resposta")
+        self.client_factory.return_value=self.client
+        self.client.messages.create.return_value.sid=None
+        with self.assertRaises(RuntimeError):
+            notif.send_to_customer("+15550000001","+15550000003","Resposta")
+
+    def test_customer_reply_requires_own_sender_without_global_fallback(self):
+        os.environ["TWILIO_FROM_NUMBER"]="+15550000009"
+        with self.assertRaises(ValueError):
+            notif.send_to_customer("","+15550000003","Resposta")
+        self.client.messages.create.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -305,6 +305,12 @@ async def whatsapp_webhook(
 
     message = Body.strip()
 
+    # Provider-signed echoes from our own sender must not re-enter the agent.
+    # Compare canonical digits before media work or any outgoing response.
+    sender_digits = __import__('re').sub(r'\D','',To)
+    if sender_digits and __import__('re').sub(r'\D','',From) == sender_digits:
+        return _twiml_ack()
+
     # Mensagem sem texto e sem mídia — ignorar (ex: read receipts)
     if not message and not media_items:
         return _twiml_ack()
@@ -531,7 +537,7 @@ async def list_handoff(rid: str, status: Optional[str]=None):
 @app.post("/api/handoff/{hid}/reply")
 async def handoff_reply(hid: int, data: HandoffReply):
     """Atendente responde pelo painel — mensagem vai via Twilio para o cliente."""
-    print(f"[HANDOFF REPLY] chamado hid={hid} atendente={data.atendente_nome!r} msg={data.mensagem!r}")
+    print(f"[HANDOFF REPLY] solicitado hid={hid}")
 
     session = await db.get_handoff_by_id(hid)
     if not session:
@@ -539,26 +545,30 @@ async def handoff_reply(hid: int, data: HandoffReply):
         raise HTTPException(404)
 
     restaurant = await db.get_restaurant_full(session["restaurant_id"])
-    print(f"[HANDOFF REPLY] enviando Twilio from={os.environ.get('TWILIO_FROM_NUMBER')!r} to={session['user_phone']!r}")
+    if not restaurant:
+        raise HTTPException(404, "Unidade não encontrada")
 
     try:
-        notif.send_to_customer(
+        observed = await asyncio.to_thread(notif.send_to_customer,
             restaurant["whatsapp_number"],
             session["user_phone"],
             data.mensagem,
         )
-        print(f"[HANDOFF REPLY] Twilio OK hid={hid}")
+        if not observed or not observed.get("provider_message_sid"):
+            raise RuntimeError("Aceitação sem SID")
     except Exception as e:
         # Twilio falhou — NÃO salva msg no banco, NÃO avança status, retorna 502
         # pra o painel mostrar o erro pro operador em vez de esconder.
-        print(f"[HANDOFF REPLY] Twilio FALHOU hid={hid}: {e!r}")
-        raise HTTPException(502, f"Twilio não entregou a mensagem: {e}")
+        print(f"[HANDOFF REPLY] aceitação não confirmada hid={hid}: {type(e).__name__}")
+        raise HTTPException(502, "Não foi possível confirmar a aceitação pela Twilio. Confira os logs antes de reenviar.")
 
-    await db.save_message(session["user_phone"], session["restaurant_id"],
-                          "assistant", f"[{data.atendente_nome}] {data.mensagem}")
-    await db.update_handoff_status(hid, "em_atendimento", data.atendente_nome)
-    print(f"[HANDOFF REPLY] concluído hid={hid} twilio_ok=True")
-    return {"ok": True}
+    try:
+        await db.record_human_handoff_reply(hid,data.atendente_nome,data.mensagem,observed["provider_message_sid"])
+    except Exception:
+        raise HTTPException(503, {"message": "Twilio aceitou a mensagem, mas a gravação local falhou. Não reenviar sem conciliação.", **observed})
+    _reports_cache.clear()
+    _serena_metrics_cache.clear()
+    return {"ok": True, "accepted": True, "delivery_confirmed": False, **observed}
 
 @app.post("/api/handoff/{hid}/assume")
 async def handoff_assume(hid: int, data: HandoffResolve):
@@ -567,12 +577,15 @@ async def handoff_assume(hid: int, data: HandoffResolve):
     if not session:
         raise HTTPException(404)
     await db.update_handoff_status(hid, "em_atendimento", data.atendente_nome)
+    _reports_cache.clear()
     print(f"[HANDOFF ASSUME] hid={hid} atendente={data.atendente_nome!r}")
     return {"ok": True, "user_phone": session["user_phone"]}
 
 @app.post("/api/handoff/{hid}/resolve")
 async def handoff_resolve(hid: int, data: HandoffResolve):
-    await db.update_handoff_status(hid, "resolvido", data.atendente_nome)
+    if not await db.update_handoff_status(hid, "resolvido", data.atendente_nome):
+        raise HTTPException(404, "Handoff não encontrado")
+    _reports_cache.clear()
     return {"ok": True}
 
 
@@ -764,7 +777,10 @@ async def list_team(rid: str):
 
 @app.post("/api/restaurants/{rid}/team", status_code=201)
 async def add_team_member(rid: str, data: TeamMemberCreate):
-    return await db.create_team_member(rid, data.model_dump())
+    try:
+        return await db.create_team_member(rid, data.model_dump())
+    except ValueError as error:
+        raise HTTPException(422,str(error))
 
 
 # ════════════════════════════════════════════════════════════════
@@ -915,6 +931,7 @@ async def handoff_kanban(hid: int, data: dict):
     ok = await db.update_handoff_kanban(hid, stage)
     if not ok:
         raise HTTPException(400, "Stage inválido ou handoff não encontrado. Use: aguardando, em_atendimento, resolvido")
+    _reports_cache.clear()
     return {"ok": True}
 
 

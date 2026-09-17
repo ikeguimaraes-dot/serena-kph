@@ -280,11 +280,15 @@ class RestaurantAgent:
             hid = await db.create_handoff(user_phone, rid, handoff_motivo)
             print(f"[AGENT] Handoff criado id={hid} user={user_phone} motivo={handoff_motivo!r}")
             response_text = (
-                "Vou te conectar com um de nossos atendentes agora. 🙏\n"
-                "Um momento, por favor."
+                "Registrei sua solicitação para nossa equipe. 🙏\n"
+                "O atendimento continua por aqui."
             )
 
-        await db.save_message(user_phone, rid, "assistant", response_text)
+        # Operator may take over while the model is generating. Read the live
+        # state again (not a cached prompt/status); still retain observed usage.
+        human_took_over = not handoff_triggered and await db.is_in_handoff(user_phone, rid)
+        if not human_took_over:
+            await db.save_message(user_phone, rid, "assistant", response_text)
 
         # ── Métricas (best-effort, não bloqueia resposta) ────
         try:
@@ -312,7 +316,7 @@ class RestaurantAgent:
         except Exception as e:
             print(f"[AGENT] record_serena_metric falhou: {e!r}")
 
-        return response_text
+        return None if human_took_over else response_text
 
     async def _run(self, system, messages, user_phone, rid, read_only=False) -> dict:
         msgs = list(messages)

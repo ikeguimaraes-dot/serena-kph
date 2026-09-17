@@ -914,19 +914,33 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
     rest = None
     gerente = None
     async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo)
-            VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
-        hid = row["id"]
+        async with c.transaction():
+            await _lock_handoff_contact(c, rid, user_phone)
+            existing = await c.fetchrow("""
+                SELECT id FROM handoff_sessions WHERE restaurant_id=$1 AND user_phone=$2
+                  AND status IN ('aguardando','em_atendimento') ORDER BY id DESC LIMIT 1
+            """, rid, user_phone)
+            if existing:
+                return existing["id"]
+            initial = {"discord": {"state": "pending"}, "whatsapp": {
+                "state": "pending" if escalacao_clinica else "skipped",
+                "reason": None if escalacao_clinica else "approved_tenant_template_not_configured"}}
+            row = await c.fetchrow("""
+                INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo,notification_status)
+                VALUES ($1,$2,$3,$4::jsonb) RETURNING id""", user_phone, rid, motivo, json.dumps(initial))
+            hid = row["id"]
         # Falhas auxiliares não apagam nem invalidam o handoff já persistido.
         try:
             rest = await c.fetchrow(
                 "SELECT nome, whatsapp_number FROM restaurants WHERE id=$1", rid)
             if escalacao_clinica:
                 gerente = await c.fetchrow(
-                    """SELECT whatsapp FROM team_members
+                    """SELECT whatsapp FROM team_members tm
                        WHERE restaurant_id=$1 AND role='gerente' AND ativo=true
                          AND NULLIF(TRIM(whatsapp), '') IS NOT NULL
+                         AND NOT EXISTS(SELECT 1 FROM restaurants sender
+                           WHERE regexp_replace(sender.whatsapp_number,'[^0-9]','','g')=
+                                 regexp_replace(tm.whatsapp,'[^0-9]','','g'))
                        ORDER BY id LIMIT 1""", rid)
         except Exception as e:
             print(f"[HANDOFF] Dados de notificação indisponíveis hid={hid}: {e!r}")
@@ -934,30 +948,51 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
     discord_aceitou = False
     try:
         import notifications as notif
-        discord_aceitou = notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
+        discord_aceitou = await asyncio.to_thread(notif.notify_handoff_discord, restaurant_nome, user_phone, motivo)
     except Exception as e:
         print(f"[HANDOFF] Discord falhou (best-effort) hid={hid}: {e!r}")
+    await _record_handoff_notification(hid, rid, "discord", {"state": "accepted" if discord_aceitou else "unconfirmed"})
 
     whatsapp_aceitou = False
     if escalacao_clinica:
         if gerente:
             try:
                 import notifications as notif
-                whatsapp_aceitou = notif.notify_escalacao_gerente(
+                whatsapp_aceitou = await asyncio.to_thread(notif.notify_escalacao_gerente,
                     from_number=(rest["whatsapp_number"] if rest else "") or "",
                     gerente_whatsapp=gerente["whatsapp"],
                     customer_phone=user_phone,
                     motivo=motivo,
                 )
+                await _record_handoff_notification(hid, rid, "whatsapp", vars(whatsapp_aceitou))
             except Exception as e:
                 print(f"[HANDOFF] Escalação clínica falhou (best-effort) hid={hid}: {e!r}")
+                await _record_handoff_notification(hid, rid, "whatsapp", {"state": "unconfirmed", "reason": type(e).__name__})
         else:
             print(f"[HANDOFF] Escalação clínica sem gerente ativo com WhatsApp hid={hid}")
+            await _record_handoff_notification(hid, rid, "whatsapp", {"state": "skipped", "reason": "no_safe_manager_destination"})
         if not whatsapp_aceitou:
             print(f"[HANDOFF] Rota clínica pendente no painel hid={hid}; Discord aceitou={bool(discord_aceitou)}")
     if not discord_aceitou and not whatsapp_aceitou:
         print(f"[HANDOFF] ALERTA: nenhum canal aceitou notificação hid={hid}; atendimento aguardando no painel")
     return hid
+
+
+async def _lock_handoff_contact(connection, rid, phone):
+    await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", json.dumps([rid,phone]))
+
+
+async def _record_handoff_notification(hid, rid, channel, result):
+    # Preserve the handoff even if this auxiliary write fails. Pending means that
+    # acceptance cannot be established; it must not trigger an automatic resend.
+    try:
+        result = {**result, "observed_at": datetime.now(_TZ_SP).isoformat()}
+        async with pool().acquire() as c:
+            await c.execute("""UPDATE handoff_sessions SET notification_status=
+                jsonb_set(notification_status,ARRAY[$3]::text[],$4::jsonb,true)
+                WHERE id=$1 AND restaurant_id=$2""", hid,rid,channel,json.dumps(result))
+    except Exception as error:
+        print(f"[HANDOFF] Evidência de canal pendente hid={hid} channel={channel}: {type(error).__name__}")
 
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
     q = """SELECT hs.*, ct.nome, ct.sobrenome
@@ -980,13 +1015,50 @@ async def get_handoff_by_id(hid: int) -> Optional[dict]:
     return dict(row) if row else None
 
 async def update_handoff_status(hid: int, status: str, atendente: Optional[str]=None) -> bool:
-    resolved = "NOW()" if status == "resolvido" else "NULL"
+    if status not in {"aguardando","em_atendimento","resolvido"}:
+        return False
     async with pool().acquire() as c:
-        r = await c.execute(f"""
-            UPDATE handoff_sessions
-            SET status=$2, atendente_nome=$3, resolved_at={resolved}
-            WHERE id=$1""", hid, status, atendente)
+        async with c.transaction():
+            session = await c.fetchrow("SELECT restaurant_id,user_phone FROM handoff_sessions WHERE id=$1",hid)
+            if not session: return False
+            await _lock_handoff_contact(c,session["restaurant_id"],session["user_phone"])
+            if status == "resolvido":
+                current_status = await c.fetchval("SELECT status FROM handoff_sessions WHERE id=$1",hid)
+                if current_status == "resolvido":
+                    # A repeated/stale resolve must not close a NEW handoff that
+                    # opened later for this phone after the target was resolved.
+                    return True
+                # Historical duplicate open rows must not keep the same chat paused.
+                r = await c.execute("""UPDATE handoff_sessions SET status='resolvido',
+                    atendente_nome=COALESCE($4,atendente_nome),resolved_at=COALESCE(resolved_at,NOW())
+                    WHERE restaurant_id=$2 AND user_phone=$3
+                      AND (id=$1 OR status IN ('aguardando','em_atendimento'))
+                """,hid,session["restaurant_id"],session["user_phone"],atendente)
+            else:
+                r = await c.execute("""UPDATE handoff_sessions SET status=$2,
+                    atendente_nome=COALESCE($3,atendente_nome),resolved_at=NULL,
+                    assumed_at=CASE WHEN $2='em_atendimento' THEN COALESCE(assumed_at,NOW()) ELSE assumed_at END
+                    WHERE id=$1""",hid,status,atendente)
     return int(r.split()[-1]) > 0
+
+
+async def record_human_handoff_reply(hid, atendente, message, provider_message_sid):
+    import re
+    if not re.fullmatch(r"SM[0-9a-fA-F]{32}", provider_message_sid or ""):
+        raise ValueError("Resposta humana exige SID válido")
+    async with pool().acquire() as c:
+        async with c.transaction():
+            session = await c.fetchrow("SELECT restaurant_id,user_phone FROM handoff_sessions WHERE id=$1",hid)
+            if not session: raise ValueError("Handoff inexistente")
+            rid,phone=session["restaurant_id"],session["user_phone"]
+            await _lock_handoff_contact(c,rid,phone)
+            await c.execute("""INSERT INTO conversations(restaurant_id,user_phone,role,content,provider_message_sid)
+                VALUES($1,$2,'assistant',$3,$4) ON CONFLICT(restaurant_id,provider_message_sid)
+                WHERE provider_message_sid IS NOT NULL DO NOTHING""",rid,phone,f"[{atendente}] {message}",provider_message_sid)
+            await c.execute("""UPDATE handoff_sessions SET status='em_atendimento',atendente_nome=$2,
+                assumed_at=COALESCE(assumed_at,NOW()),first_human_response_at=COALESCE(first_human_response_at,NOW()),
+                last_reply_message_sid=$3,resolved_at=NULL WHERE id=$1""",hid,atendente,provider_message_sid)
+    return True
 
 async def is_in_handoff(user_phone: str, rid: str) -> bool:
     async with pool().acquire() as c:
@@ -1016,6 +1088,8 @@ async def get_handoff_sla_stats(restaurant_id: str) -> dict:
                     WHERE resolved_at IS NOT NULL
                       AND resolved_at - created_at <= INTERVAL '2 hours'
                 )                                                                       AS dentro_sla
+                ,ROUND(AVG(EXTRACT(EPOCH FROM (first_human_response_at-created_at))/60)
+                       FILTER(WHERE first_human_response_at IS NOT NULL),1) AS primeira_resposta_minutos
             FROM handoff_sessions
             WHERE restaurant_id = $1
         """, restaurant_id)
@@ -1044,6 +1118,10 @@ async def get_handoff_sla_stats(restaurant_id: str) -> dict:
         "tma_minutos": tma,
         "taxa_sla_pct": taxa_sla,
         "resolvidos_total": resolvidos,
+        "tempo_primeira_resposta_minutos": float(stats["primeira_resposta_minutos"]) if stats["primeira_resposta_minutos"] is not None else None,
+        "tma_definicao": "Legado: tempo até resolução; não é tempo até primeira resposta.",
+        "limiar_legado_minutos": 120,
+        "sla_validado": False,
         "handoffs_vencidos": [
             {
                 "id": r["id"],
@@ -1069,11 +1147,15 @@ async def get_on_duty_team(rid: str) -> list[dict]:
     return await get_team(rid)
 
 async def create_team_member(rid: str, data: dict) -> dict:
+    from notifications import whatsapp_address
+    number = whatsapp_address(data["whatsapp"]).removeprefix("whatsapp:")
     async with pool().acquire() as c:
+        if await c.fetchval("SELECT EXISTS(SELECT 1 FROM restaurants WHERE regexp_replace(whatsapp_number,'[^0-9]','','g')=$1)",number.lstrip("+")):
+            raise ValueError("Número de operação não pode ser destino de atendimento humano")
         row = await c.fetchrow("""
             INSERT INTO team_members (restaurant_id,nome,whatsapp,role)
             VALUES ($1,$2,$3,$4) RETURNING id""",
-            rid, data["nome"], data["whatsapp"], data.get("role","atendente"))
+            rid, data["nome"], number, data.get("role","atendente"))
     return {"id": row["id"]}
 
 
@@ -2009,10 +2091,7 @@ async def update_handoff_kanban(hid: int, stage: str) -> bool:
     valid = {"aguardando", "em_atendimento", "resolvido"}
     if stage not in valid:
         return False
-    async with pool().acquire() as c:
-        r = await c.execute(
-            "UPDATE handoff_sessions SET status=$1 WHERE id=$2", stage, hid)
-    return int(r.split()[-1]) > 0
+    return await update_handoff_status(hid,stage)
 
 
 # ── Agenda própria — Serena 2.0 ───────────────────────────────
