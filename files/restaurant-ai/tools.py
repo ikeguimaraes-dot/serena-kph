@@ -188,6 +188,11 @@ async def lookup_menu(restaurant_id: str, termo: str) -> str:
 
     linhas = []
     for it in items:
+        from catalog import imported_item_text
+        imported = imported_item_text(it)
+        if imported is not None:
+            linhas.append(imported)
+            continue
         preco = it.get("preco")
         if preco is not None:
             preco_txt = f"R$ {float(preco):.2f}".replace(".", ",")

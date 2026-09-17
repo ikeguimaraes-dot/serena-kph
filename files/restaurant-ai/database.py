@@ -210,7 +210,8 @@ async def search_menu_items(rid: str, termo: str, limit: int = 5) -> list[dict]:
     pat = f"%{(termo or '').strip()}%"
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT nome, categoria, descricao, preco, disponivel
+            SELECT nome, categoria, descricao, preco, disponivel,
+                   to_jsonb(menu_items)->'catalog_metadata' AS catalog_metadata
             FROM menu_items
             WHERE restaurant_id=$1
               AND ($2 = '%%' OR nome ILIKE $2 OR categoria ILIKE $2 OR descricao ILIKE $2)
