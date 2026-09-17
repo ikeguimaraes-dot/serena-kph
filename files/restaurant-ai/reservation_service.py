@@ -332,10 +332,12 @@ async def create_manual_booking(pool, data):
             return dict(row)
 
 
-async def update_booking_status(pool, reservation_id, rid, status):
+async def update_booking_status(pool, reservation_id, rid, status, *, operator_id=None):
     """Reactivation consumes capacity too; use the exact same capacity locks."""
     async with pool.acquire() as c:
         async with c.transaction(isolation='read_committed'):
+            await c.execute("SELECT set_config('serena.operator_id', $1, true), set_config('serena.change_source', $2, true)",
+                            str(operator_id) if operator_id else "", "reservation_api" if operator_id else "backend")
             original = await c.fetchrow('SELECT * FROM reservas WHERE id=$1 AND restaurant_id=$2', valid_uuid(reservation_id, 'reservation'), valid_tenant(rid))
             if not original:
                 return None

@@ -712,6 +712,7 @@ async def cancelar(restaurant_id: str, reserva_id: str):
 async def atualizar_status_reserva(
     restaurant_id: str,
     reserva_id: str,
+    request: Request,
     body: dict = Body(...),
 ):
     """Atualiza status genérico: no_show | realizada | confirmada | cancelada"""
@@ -719,7 +720,8 @@ async def atualizar_status_reserva(
     if not status:
         raise HTTPException(422, "Campo 'status' obrigatório")
     try:
-        reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status)
+        reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status,
+            operator_id=getattr(request.state, "operator", {}).get("id"))
     except BookingError as exc:
         raise HTTPException(exc.status, exc.message)
     except ValueError as e:
@@ -803,7 +805,9 @@ async def reports_full(rid: str, days: int = 7):
 @app.post("/api/contacts", status_code=201)
 async def upsert_contact(data: ContactUpsert, request: Request):
     """Cria ou atualiza contato pelo celular (upsert)."""
-    return await db.upsert_contact(data.model_dump(exclude_none=False), restaurant_id=contact_tenant(request))
+    actor = getattr(request.state, "operator", {})
+    return await db.upsert_contact(data.model_dump(exclude_none=False), restaurant_id=contact_tenant(request),
+                                   operator_id=actor.get("id"))
 
 @app.get("/api/contacts", dependencies=[Depends(require_admin)])
 async def list_contacts(
@@ -835,9 +839,9 @@ async def funil_stats(request: Request):
 
 @app.post("/api/contacts/mark-inactive", dependencies=[Depends(require_admin)])
 async def contacts_mark_inactive(threshold_days: int = 45):
-    """Move para 'Inativo' contatos sem visita há N+ dias. Cron-only — exige x-admin-secret."""
-    affected = await db.mark_inactive_contacts(threshold_days)
-    return {"affected": affected}
+    """Compatibility response: silence does not establish a loss reason."""
+    return {"affected": 0, "updated": 0, "deprecated": True,
+            "reason": "Classificação de perda exige motivo informado"}
 
 @app.get("/api/contacts/{celular}", dependencies=[Depends(require_admin)])
 async def get_contact(celular: str, request: Request):
@@ -857,7 +861,10 @@ async def contact_conversations(celular: str, request: Request, limit: int = 100
 @app.patch("/api/contacts/{celular}")
 async def patch_contact(celular: str, data: ContactUpdate, request: Request):
     payload = {k: v for k, v in data.model_dump().items() if v is not None}
-    c = await db.update_contact(celular, payload, restaurant_id=contact_tenant(request))
+    kwargs = {"restaurant_id": contact_tenant(request)}
+    if "estagio_kanban" in payload:
+        kwargs["operator_id"] = getattr(request.state, "operator", {}).get("id")
+    c = await db.update_contact(celular, payload, **kwargs)
     if not c:
         raise HTTPException(404)
     return c
@@ -865,12 +872,28 @@ async def patch_contact(celular: str, data: ContactUpdate, request: Request):
 @app.patch("/api/contacts/{celular}/kanban", dependencies=[Depends(require_admin)])
 async def move_kanban(celular: str, data: ContactKanbanMove, request: Request):
     try:
-        c = await db.move_contact_kanban(celular, data.estagio_kanban, restaurant_id=contact_tenant(request))
+        c = await db.move_contact_kanban(
+            celular, data.estagio_kanban, restaurant_id=contact_tenant(request),
+            motivo_perda=data.motivo_perda, motivo_perda_detalhe=data.motivo_perda_detalhe,
+            operator_id=getattr(request.state, "operator", {}).get("id"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not c:
         raise HTTPException(404)
     return c
+
+
+@app.get("/api/contacts/{celular}/kanban/history", dependencies=[Depends(require_admin)])
+async def contact_stage_history(celular: str, request: Request, limit: int = Query(100, ge=1, le=500)):
+    tenant = contact_tenant(request)
+    if not await db.get_contact(celular, restaurant_id=tenant):
+        raise HTTPException(404, "Contato não encontrado")
+    return await db.get_contact_stage_history(celular, tenant, limit=limit)
+
+
+@app.get("/api/agenda/{restaurant_id}/reservas/{reserva_id}/status/history", dependencies=[Depends(require_admin)])
+async def reservation_status_history(restaurant_id: str, reserva_id: str, limit: int = Query(100, ge=1, le=500)):
+    return await db.get_reserva_status_history(reserva_id, restaurant_id, limit=limit)
 
 
 @app.get("/api/contacts/{celular}/profile", dependencies=[Depends(require_admin)])

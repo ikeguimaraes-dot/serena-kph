@@ -1149,13 +1149,23 @@ CONTACT_UPDATABLE = {
     "nome", "sobrenome", "email", "data_nascimento", "endereco",
     "tipo_aparelho", "canal_entrada", "ocasiao", "restricoes_alimentares",
     "ticket_medio", "ultima_visita", "tags", "opt_in_marketing",
-    "estagio_kanban", "notas", "frequencia_visitas",
+    "estagio_kanban", "motivo_perda", "motivo_perda_detalhe", "notas", "frequencia_visitas",
     "lead_score", "lead_score_at",
 }
 
-KANBAN_ESTAGIOS = (
-    "captacao", "qualificado", "proposta", "fechado", "perdido",
-)
+from crm_stages import KANBAN_ESTAGIOS, MOTIVOS_PERDA, validate_stage_payload
+
+
+async def _crm_audit_context(connection, operator_id: str | None, source: str) -> None:
+    """Transaction-local context; never carry an operator across pooled requests."""
+    await connection.execute(
+        "SELECT set_config('serena.operator_id', $1, true), set_config('serena.change_source', $2, true)",
+        str(operator_id) if operator_id else "", source)
+
+
+def _validate_contact_stage_fields(data: dict) -> None:
+    if any(data.get(key) is not None for key in ("estagio_kanban", "motivo_perda", "motivo_perda_detalhe")):
+        validate_stage_payload(data.get("estagio_kanban"), data.get("motivo_perda"), data.get("motivo_perda_detalhe"))
 
 
 async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id: Optional[str] = None) -> None:
@@ -1182,11 +1192,12 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
             )
 
 
-async def upsert_contact(data: dict, restaurant_id: str | None = None) -> dict:
+async def upsert_contact(data: dict, restaurant_id: str | None = None, *, operator_id: str | None = None) -> dict:
     """Upsert scoped to one business, never all records of a shared phone."""
     rid = restaurant_id or data.get("restaurant_id")
     if not rid:
         raise ValueError("restaurant_id obrigatório para o contato")
+    _validate_contact_stage_fields(data)
     celular = data["celular"]
     fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
     cols = ["celular", "restaurant_id"] + list(fields)
@@ -1194,9 +1205,11 @@ async def upsert_contact(data: dict, restaurant_id: str | None = None) -> dict:
     placeholders = ",".join(f"${i+1}" for i in range(len(cols)))
     update = ",".join(f"{k}=EXCLUDED.{k}" for k in fields) or "celular=EXCLUDED.celular"
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            f"INSERT INTO contacts ({','.join(cols)}) VALUES ({placeholders}) "
-            f"ON CONFLICT (celular, restaurant_id) DO UPDATE SET {update} RETURNING *", *values)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                f"INSERT INTO contacts ({','.join(cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT (celular, restaurant_id) DO UPDATE SET {update} RETURNING *", *values)
     return dict(row)
 
 
@@ -1255,26 +1268,64 @@ async def get_contact(celular: str, restaurant_id: str | None = None) -> Optiona
     return dict(row) if row else None
 
 
-async def update_contact(celular: str, data: dict, restaurant_id: str | None = None) -> Optional[dict]:
+async def update_contact(celular: str, data: dict, restaurant_id: str | None = None, *, operator_id: str | None = None) -> Optional[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    _validate_contact_stage_fields(data)
     fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
     if not fields:
         return await get_contact(celular, restaurant_id)
     set_clause = ",".join(f"{k}=${i+2}" for i, k in enumerate(fields))
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            f"UPDATE contacts SET {set_clause} WHERE celular=$1 AND restaurant_id=${len(fields)+2} RETURNING *",
-            celular, *fields.values(), restaurant_id)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                f"UPDATE contacts SET {set_clause} WHERE celular=$1 AND restaurant_id=${len(fields)+2} RETURNING *",
+                celular, *fields.values(), restaurant_id)
     return dict(row) if row else None
 
 
-async def move_contact_kanban(celular: str, estagio: str, restaurant_id: str | None = None) -> Optional[dict]:
-    if estagio not in KANBAN_ESTAGIOS:
-        raise ValueError(f"Estágio inválido: {estagio}")
+async def move_contact_kanban(
+    celular: str, estagio: str, restaurant_id: str | None = None, *,
+    motivo_perda: str | None = None, motivo_perda_detalhe: str | None = None,
+    operator_id: str | None = None,
+) -> Optional[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    reason, detail = validate_stage_payload(estagio, motivo_perda, motivo_perda_detalhe)
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1 AND restaurant_id=$3 RETURNING *",
-            celular, estagio, restaurant_id)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                """UPDATE contacts SET estagio_kanban=$2, motivo_perda=$4, motivo_perda_detalhe=$5
+                   WHERE celular=$1 AND restaurant_id=$3 RETURNING *""",
+                celular, estagio, restaurant_id, reason, detail)
     return dict(row) if row else None
+
+
+async def get_contact_stage_history(celular: str, restaurant_id: str, limit: int = 100) -> list[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            """SELECT e.* FROM contact_stage_events e
+               JOIN contacts c ON c.id=e.contact_id AND c.restaurant_id=e.restaurant_id
+               WHERE c.celular=$1 AND e.restaurant_id=$2
+               ORDER BY e.occurred_at DESC, e.id DESC LIMIT $3""",
+            celular, restaurant_id, min(max(limit, 1), 500))
+    return [dict(row) for row in rows]
+
+
+async def get_reserva_status_history(reserva_id: str, restaurant_id: str, limit: int = 100) -> list[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para a reserva")
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            """SELECT * FROM reservation_status_events
+               WHERE reserva_id=$1 AND restaurant_id=$2
+               ORDER BY occurred_at DESC, id DESC LIMIT $3""",
+            reserva_id, restaurant_id, min(max(limit, 1), 500))
+    return [dict(row) for row in rows]
 
 
 async def get_funil_stats(restaurant_id: str | None = None) -> dict:
@@ -1371,8 +1422,8 @@ async def get_contact_conversations(celular: str, limit: int = 100, restaurant_i
 
 
 async def mark_inactive_contacts(threshold_days: int = 45) -> int:
-    """Move para 'Inativo' contatos sem visita há N+ dias.
-    Chamar via cron ou endpoint. Retorna quantos foram afetados."""
+    """Deprecated compatibility hook: inactivity never proves a lost opportunity.
+    The matching SQL function returns zero without changing contacts."""
     async with pool().acquire() as c:
         affected = await c.fetchval(
             "SELECT contacts_mark_inactive($1)", threshold_days)
@@ -2054,12 +2105,12 @@ async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
 
 _STATUS_RESERVA_VALIDOS = {"no_show", "realizada", "confirmada", "cancelada", "pendente"}
 
-async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: str) -> Optional[dict]:
+async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: str, *, operator_id: str | None = None) -> Optional[dict]:
     """Atualiza status de uma reserva. Retorna a reserva atualizada ou None se não encontrada."""
     if status not in _STATUS_RESERVA_VALIDOS:
         raise ValueError(f"Status inválido: {status}. Válidos: {_STATUS_RESERVA_VALIDOS}")
     from reservation_service import update_booking_status
-    return await update_booking_status(pool(), reserva_id, restaurant_id, status)
+    return await update_booking_status(pool(), reserva_id, restaurant_id, status, operator_id=operator_id)
 
 
 async def listar_reservas_semana(restaurant_id: str, data_inicio: str) -> list[dict]:
