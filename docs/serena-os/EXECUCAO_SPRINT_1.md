@@ -1,4 +1,7 @@
-# Serena OS — execução do Sprint 1
+# Serena OS — registro histórico do primeiro release
+
+> **Estado atual:** veja [execução completa](EXECUCAO_COMPLETA.md) e [matriz dos 30 itens](OPERACAO_E_PENDENCIAS.md).
+> As tabelas abaixo registram o diagnóstico inicial; catálogo vazio, bloqueios e próximos portões foram superados em releases posteriores. A autorização posterior do Ike permitiu avançar nos seis sprints.
 
 Início: 17/09/2026. Referência: [Book mestre v1.1](BOOK_MESTRE_v1.1_2026-09-17.md).
 
