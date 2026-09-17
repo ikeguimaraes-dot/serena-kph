@@ -49,15 +49,24 @@ _serena_metrics_cache = TTLCache(maxsize=32, ttl=120)
 async def lifespan(app: FastAPI):
     await db.init_db()
     _scheduler = None
+    _outreach_scheduler = None
     try:
         _scheduler = _start_weekly_cron()
     except Exception as e:
         print(f"[CRON] startup falhou (app continua): {e!r}")
     try:
+        from outreach_scheduler import start_scheduler
+        _outreach_scheduler = start_scheduler()
+    except Exception as e:
+        print(f"[OUTREACH] scheduler startup failed: {type(e).__name__}")
+    try:
         yield
     finally:
         if _scheduler is not None:
             try: _scheduler.shutdown(wait=False)
+            except Exception: pass
+        if _outreach_scheduler is not None:
+            try: _outreach_scheduler.shutdown(wait=False)
             except Exception: pass
         await db.close_db()
 

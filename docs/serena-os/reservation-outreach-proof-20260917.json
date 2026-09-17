@@ -1,0 +1,44 @@
+{
+  "verified_at": "2026-09-17T05:13:02.250285+00:00",
+  "duration_seconds": 11.81,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_reservation_outreach_restore.py",
+    "sha256": "432dc7c279c7b445c269deaf308f081e3899d1927c5c16229f17a85f9d33a4df",
+    "success": true
+  },
+  "test_results": [
+    {
+      "success": true,
+      "migration_replay": true,
+      "rls_and_browser_privileges": true,
+      "legacy_boolean_not_consent": true,
+      "consent_evidence_actor_and_revocation": true,
+      "tenant_sender_and_reservation_isolation": true,
+      "dry_run_no_outbox_writes": true,
+      "concurrent_event_single_attempt": true,
+      "sent_requires_sid": true,
+      "unknown_and_failed_not_retried_or_marked_sent": true,
+      "external_messages_sent": 0
+    },
+    {
+      "success": true,
+      "reservation_status_and_real_event_required": true,
+      "confirmation_not_backfilled_on_activation": true,
+      "brt_20_to_24_hour_window_and_boundaries": true,
+      "explicit_variable_mapping": true,
+      "tenant_consent_and_sender_isolation": true,
+      "concurrent_single_attempt_and_no_reschedule_duplicate": true,
+      "cancellation_and_revocation_rechecked_at_claim": true,
+      "periodic_worker_default_off_and_per_unit_failure_isolation": true,
+      "external_messages_sent": 0,
+      "production_writes": 0
+    }
+  ],
+  "offline_tests": 9
+}

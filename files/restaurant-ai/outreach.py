@@ -8,13 +8,17 @@ import os
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Literal
+from zoneinfo import ZoneInfo
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 import database as db
 
-STAGES = ("nurture_d3", "d1", "d3", "d7", "d30")
+RESERVATION_STAGES = ("reservation_confirmation", "reservation_reminder")
+STAGES = ("nurture_d3", "d1", "d3", "d7", "d30", *RESERVATION_STAGES)
+RESERVATION_VARIABLES = {"nome", "data", "hora", "unidade"}
+RESERVATION_TIMEZONE = ZoneInfo("America/Sao_Paulo")
 WINDOWS = {"d1": (20, 30, None), "d3": (68, 80, "d1"),
            "d7": (168, 192, "d3"), "d30": (720, 768, "d7")}
 LEGACY_TEMPLATES = {"d1": "HX7a16cfb714c360daa4cb1dd391839f1a",
@@ -57,6 +61,17 @@ class RuleChange(BaseModel):
     enabled: bool = False
     content_sid: str | None = Field(None, pattern=r"^HX[0-9a-fA-F]{32}$")
     messaging_service_sid: str | None = Field(None, pattern=r"^MG[0-9a-fA-F]{32}$")
+    template_variables: dict[str, Literal["nome", "data", "hora", "unidade"]] = Field(default_factory=dict)
+    reminder_hours_before: int = Field(24, ge=1, le=168)
+    reminder_window_minutes: int = Field(240, ge=15, le=1440)
+
+    @model_validator(mode="after")
+    def variable_contract(self):
+        if len(self.template_variables) > 100 or any(not re.fullmatch(r"[A-Za-z0-9]{1,16}", key) for key in self.template_variables):
+            raise ValueError("Variáveis devem ter chaves alfanuméricas de 1 a 16 caracteres.")
+        if self.reminder_window_minutes >= self.reminder_hours_before * 60:
+            raise ValueError("A janela do lembrete deve terminar antes do horário da reserva.")
+        return self
 
 
 def actor_id(request):
@@ -126,40 +141,117 @@ async def verify_template(content_sid):
     return {"status": status, "verified_at": utcnow()}
 
 
+async def verify_reservation_variables(content_sid, mapping):
+    """Require an explicit per-unit map matching every variable in the template."""
+    if not valid_reservation_mapping(mapping):
+        raise HTTPException(422, "Mapeie explicitamente nome, data, hora e unidade nas variáveis do template.")
+    credentials = provider_credentials()
+    if not credentials:
+        raise HTTPException(409, "Twilio não configurado")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            response = await client.get(f"https://content.twilio.com/v1/Content/{content_sid}", auth=credentials)
+        response.raise_for_status()
+        variables = response.json().get("variables")
+    except (httpx.HTTPError, ValueError, AttributeError):
+        raise HTTPException(503, "Não foi possível verificar as variáveis do template")
+    if not isinstance(variables, dict) or set(variables) != set(mapping):
+        raise HTTPException(409, "O mapa deve corresponder a todas as variáveis declaradas no template aprovado.")
+
+
+def variable_mapping(rule):
+    value = rule.get("template_variables") or {}
+    return json.loads(value) if isinstance(value, str) else value
+
+
+def valid_reservation_mapping(mapping):
+    return (isinstance(mapping, dict) and 0 < len(mapping) <= 100
+            and all(isinstance(source, str) and source in RESERVATION_VARIABLES
+                    and re.fullmatch(r"[A-Za-z0-9]{1,16}", key) for key, source in mapping.items())
+            and set(mapping.values()) == RESERVATION_VARIABLES)
+
+
 async def rules_for(rid):
     async with db.pool().acquire() as c:
         if not await c.fetchval("SELECT EXISTS(SELECT 1 FROM restaurants WHERE id=$1)", rid):
             raise HTTPException(404, "Unidade não encontrada")
         rows = await c.fetch("SELECT * FROM outreach_rules WHERE restaurant_id=$1 ORDER BY stage", rid)
-    existing = {row["stage"]: dict(row) for row in rows}
+    existing = {row["stage"]: {**dict(row), "template_variables": variable_mapping(row)} for row in rows}
     return {"restaurant_id": rid, "sending_enabled": sending_enabled(), "default_dry_run": True,
             "rules": [existing.get(stage, {"restaurant_id": rid, "stage": stage, "enabled": False,
                        "content_sid": None, "template_status": "unverified",
-                       "legacy_content_sid": LEGACY_TEMPLATES.get(stage)}) for stage in STAGES]}
+                       "legacy_content_sid": LEGACY_TEMPLATES.get(stage), "template_variables": {},
+                       "reminder_hours_before": 24, "reminder_window_minutes": 240}) for stage in STAGES]}
 
 
 async def save_rule(rid, stage, change: RuleChange, actor):
     if stage not in STAGES:
         raise HTTPException(422, "Etapa inválida")
     approval = await verify_template(change.content_sid) if change.enabled else {"status": "unverified", "verified_at": None}
+    if stage in RESERVATION_STAGES and change.enabled:
+        await verify_reservation_variables(change.content_sid, change.template_variables)
     async with db.pool().acquire() as c:
         if not await c.fetchval("SELECT EXISTS(SELECT 1 FROM restaurants WHERE id=$1)", rid):
             raise HTTPException(404, "Unidade não encontrada")
         row = await c.fetchrow("""
-            INSERT INTO outreach_rules(restaurant_id,stage,enabled,content_sid,messaging_service_sid,template_status,template_verified_at,updated_by)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+            INSERT INTO outreach_rules(restaurant_id,stage,enabled,content_sid,messaging_service_sid,template_status,template_verified_at,updated_by,
+              template_variables,reminder_hours_before,reminder_window_minutes)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9::jsonb,$10,$11)
             ON CONFLICT(restaurant_id,stage) DO UPDATE SET enabled=EXCLUDED.enabled,
               content_sid=EXCLUDED.content_sid,messaging_service_sid=EXCLUDED.messaging_service_sid,
               template_status=EXCLUDED.template_status,template_verified_at=EXCLUDED.template_verified_at,
-              updated_by=EXCLUDED.updated_by,updated_at=NOW()
+              updated_by=EXCLUDED.updated_by,updated_at=NOW(),template_variables=EXCLUDED.template_variables,
+              reminder_hours_before=EXCLUDED.reminder_hours_before,reminder_window_minutes=EXCLUDED.reminder_window_minutes
             RETURNING *
         """, rid, stage, change.enabled, change.content_sid, change.messaging_service_sid,
-            approval["status"], approval["verified_at"], actor)
-    return dict(row)
+            approval["status"], approval["verified_at"], actor, json.dumps(change.template_variables),
+            change.reminder_hours_before, change.reminder_window_minutes)
+    return {**dict(row), "template_variables": variable_mapping(row)}
 
 
 async def candidates(c, rid, family, now):
     """Only existing events, same-unit exact phone joins, stable event identity."""
+    if family == "reservation":
+        rows = await c.fetch("""
+            SELECT r.id::text AS object_id,r.cliente_phone AS customer_phone,r.cliente_nome AS nome,
+                   r.data,r.hora_inicio,b.nome AS unidade,ct.opt_in_marketing,ru.stage,
+                   ru.template_variables,
+                   CASE WHEN ru.stage='reservation_confirmation' THEN confirmation.occurred_at
+                        ELSE (r.data+r.hora_inicio) AT TIME ZONE 'America/Sao_Paulo' END AS event_at
+            FROM reservas r
+            JOIN restaurants b ON b.id=r.restaurant_id AND b.ativo=true
+            JOIN outreach_rules ru ON ru.restaurant_id=r.restaurant_id AND ru.enabled=true
+              AND ru.stage IN ('reservation_confirmation','reservation_reminder')
+            LEFT JOIN contacts ct ON ct.restaurant_id=r.restaurant_id AND ct.celular=r.cliente_phone
+            LEFT JOIN LATERAL (
+              SELECT ev.occurred_at FROM reservation_status_events ev
+              WHERE ev.restaurant_id=r.restaurant_id AND ev.reserva_id=r.id
+                AND ev.new_status='confirmada' AND ev.event_type IN ('created','status_changed')
+                AND ev.occurred_at >= ru.updated_at AND ev.occurred_at <= $2
+              ORDER BY ev.occurred_at DESC,ev.id DESC LIMIT 1
+            ) confirmation ON true
+            WHERE r.restaurant_id=$1 AND r.status='confirmada' AND r.hora_inicio IS NOT NULL
+              AND (r.data+r.hora_inicio) AT TIME ZONE 'America/Sao_Paulo' > $2
+              AND ((ru.stage='reservation_confirmation' AND confirmation.occurred_at IS NOT NULL)
+                OR (ru.stage='reservation_reminder'
+                  AND (r.data+r.hora_inicio) AT TIME ZONE 'America/Sao_Paulo'
+                      BETWEEN $2 + make_interval(mins => ru.reminder_hours_before*60-ru.reminder_window_minutes)
+                          AND $2 + make_interval(hours => ru.reminder_hours_before)))
+              AND NOT EXISTS(SELECT 1 FROM outreach_outbox ob WHERE ob.restaurant_id=r.restaurant_id
+                AND ob.object_type='reservation' AND ob.object_id=r.id::text AND ob.stage=ru.stage)
+            ORDER BY r.data,r.hora_inicio,r.id,ru.stage LIMIT 100
+        """, rid, now)
+        result = []
+        for row in rows:
+            data = dict(row)
+            context = {"nome": data["nome"], "data": data["data"].strftime("%d/%m/%Y"),
+                       "hora": data["hora_inicio"].strftime("%H:%M"), "unidade": data["unidade"]}
+            mapping = variable_mapping(data)
+            valid_map = valid_reservation_mapping(mapping)
+            data["variables_valid"] = valid_map and all(context.values())
+            data["variables"] = {key: context[source] for key, source in mapping.items()} if valid_map else {}
+            result.append({**data, "object_type": "reservation"})
+        return result
     if family == "nurture":
         rows = await c.fetch("""
             SELECT ct.celular AS customer_phone,ct.nome,ct.opt_in_marketing,
@@ -214,6 +306,8 @@ async def evaluate(c, rid, candidate, sender):
     if not rule or not rule["enabled"]: reasons.append("rule_disabled")
     if not rule or rule["template_status"] != "approved" or not rule["content_sid"]: reasons.append("template_unverified")
     if attempt: reasons.append("event_already_attempted")
+    if candidate["stage"] in RESERVATION_STAGES and not candidate.get("variables_valid"):
+        reasons.append("reservation_template_variables_missing")
     return {**candidate, "restaurant_id": rid, "sender_phone": sender,
             "eligible": not reasons, "blocked_reasons": reasons,
             "rule": dict(rule) if rule else None, "consent_event_id": consent["id"] if consent else None,
@@ -236,6 +330,8 @@ async def claim(rid, family, item):
     """Persist before network call. Existing event, including unknown, never retries."""
     async with db.pool().acquire() as c:
         async with c.transaction():
+            if item["object_type"] == "reservation":
+                await c.fetchrow("SELECT id FROM reservas WHERE restaurant_id=$1 AND id::text=$2 FOR UPDATE", rid, item["object_id"])
             await c.fetchrow("SELECT id FROM contacts WHERE restaurant_id=$1 AND celular=$2 FOR UPDATE", rid, item["customer_phone"])
             fresh = next((value for value in await candidates(c, rid, family, utcnow())
                           if value["object_id"] == item["object_id"] and value["stage"] == item["stage"]), None)
@@ -313,6 +409,8 @@ async def run(rid, family, dry_run=True):
             continue
         try:
             await verify_template(item["rule"]["content_sid"])
+            if item["stage"] in RESERVATION_STAGES:
+                await verify_reservation_variables(item["rule"]["content_sid"], variable_mapping(item["rule"]))
         except HTTPException:
             report["results"].append({"object_id": item["object_id"], "status": "blocked", "reason": "template_not_verified_live"})
             continue
@@ -346,7 +444,7 @@ def create_router(auth_dependency):
         return await save_rule(restaurant_id, stage, change, actor_id(request))
 
     @router.post("/api/restaurants/{restaurant_id}/outreach/{family}/run")
-    async def run_rule(restaurant_id: str, family: Literal["nurture", "pos_evento"], dry_run: bool = Query(True)):
+    async def run_rule(restaurant_id: str, family: Literal["nurture", "pos_evento", "reservation"], dry_run: bool = Query(True)):
         return await run(restaurant_id, family, dry_run)
 
     @router.get("/api/restaurants/{restaurant_id}/outreach/outbox")
