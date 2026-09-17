@@ -1,0 +1,262 @@
+{
+  "schema_version": 1,
+  "synthetic": false,
+  "business": {
+    "tenant_id": null,
+    "legal_name": null,
+    "display_name": null,
+    "vertical": null,
+    "address": null,
+    "official_url": null,
+    "data_source_ref": null,
+    "timezone": null,
+    "clinical_risk": null
+  },
+  "owners": {
+    "business": null,
+    "operations": null,
+    "engineering": null,
+    "data_privacy": null,
+    "commercial": null
+  },
+  "channels": {
+    "whatsapp_number": null,
+    "sender_ref": null,
+    "waba_ref": null,
+    "display_name_evidence_ref": null,
+    "display_name_approved": false
+  },
+  "catalog": {
+    "item_count": null,
+    "source_ref": null,
+    "manifest_sha256": null,
+    "reviewer": null,
+    "review_evidence_ref": null,
+    "operator_review_complete": false
+  },
+  "agenda": {
+    "mode": null,
+    "source_ref": null,
+    "turns_evidence_ref": null,
+    "capacity_evidence_ref": null,
+    "blocks_evidence_ref": null,
+    "concurrency_test_ref": null,
+    "operator_approved": false,
+    "official_booking_url": null,
+    "identity_evidence_ref": null,
+    "accepted_pilot_limitation": false
+  },
+  "handoff": {
+    "primary_owner": null,
+    "backup_owner": null,
+    "boundary_ref": null,
+    "destination_evidence_ref": null,
+    "receipt_evidence_ref": null,
+    "received_by_human": false,
+    "clinical_owner": null,
+    "clinical_boundary_ref": null
+  },
+  "access_inventory": [
+    {
+      "resource": "backup",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "database",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "hosting_backend",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "hosting_panel",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "meta_portfolio",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "model_provider",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "source_control",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    },
+    {
+      "resource": "whatsapp_provider",
+      "account_ref": null,
+      "owner": null,
+      "backup_owner": null,
+      "recovery_method": null,
+      "vault_ref": null,
+      "recovery_test_ref": null,
+      "recovery_tested_at": null
+    }
+  ],
+  "measurements": {
+    "status": "pending",
+    "start_date": null,
+    "end_date": null,
+    "conversations": null,
+    "billable_messages": null,
+    "llm_cost_brl": null,
+    "messaging_cost_brl": null,
+    "infra_allocated_brl": null,
+    "support_allocated_brl": null,
+    "setup_hours": null,
+    "loaded_hourly_brl": null,
+    "setup_direct_brl": null,
+    "evidence_refs": []
+  },
+  "commercial": {
+    "decision_status": "pending",
+    "decision_owner": null,
+    "decision_ref": null,
+    "included_messages": null,
+    "billing_period_days": null,
+    "target_margin": null,
+    "effective_tax_rate": null,
+    "subscription_price_brl": null,
+    "overage_price_per_message_brl": null,
+    "setup_price_brl": null,
+    "below_floor_exception_ref": null,
+    "final_price_approval_ref": null
+  },
+  "go_live": {
+    "checks": {
+      "auth_permissions": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "backup_restore": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "catalog_review": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "engineering_signoff": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "fallback": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "handoff_received": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "operator_signoff": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "privacy_review": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "tenant_isolation": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      },
+      "training": {
+        "status": "pending",
+        "owner": null,
+        "evidence_ref": null,
+        "verified_at": null
+      }
+    },
+    "assisted_operation_owner": null,
+    "rollback_ref": null
+  },
+  "milestones": {
+    "briefing_complete_at": null,
+    "engineering_started_at": null,
+    "engineering_completed_at": null,
+    "pilot_live_at": null
+  },
+  "persona": {
+    "agent_name": null,
+    "tone": null,
+    "language": null,
+    "limits_ref": null,
+    "prompt_version_ref": null,
+    "vision_rules_ref": null,
+    "source_of_truth_ref": null
+  },
+  "scope": {
+    "included_modules": [],
+    "excluded_modules": [],
+    "signed_scope_ref": null
+  },
+  "data_policy": {
+    "consent_policy_ref": null,
+    "privacy_notice_ref": null,
+    "retention_policy_ref": null,
+    "data_export_procedure_ref": null
+  }
+}

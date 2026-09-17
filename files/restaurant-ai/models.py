@@ -1,6 +1,6 @@
 """Modelos Pydantic — contratos da API REST."""
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from typing import Optional
 from datetime import datetime
 
@@ -177,7 +177,26 @@ class TeamMemberCreate(BaseModel):
 
 
 # ── CRM / Contatos ────────────────────────────────────────────
-class ContactUpsert(BaseModel):
+class ContactStageFields(BaseModel):
+    estagio_kanban: Optional[str] = None
+    motivo_perda: Optional[str] = None
+    motivo_perda_detalhe: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_stage(self):
+        from crm_stages import validate_stage_payload
+        reason, detail = validate_stage_payload(
+            self.estagio_kanban, self.motivo_perda, self.motivo_perda_detalhe)
+        # PATCH must distinguish an omitted field from an explicit null.
+        supplied = self.model_fields_set.copy()
+        if "motivo_perda" in supplied:
+            self.motivo_perda = reason
+        if "motivo_perda_detalhe" in supplied:
+            self.motivo_perda_detalhe = detail
+        return self
+
+
+class ContactUpsert(ContactStageFields):
     celular: str
     nome: Optional[str] = None
     sobrenome: Optional[str] = None
@@ -199,11 +218,10 @@ class ContactUpsert(BaseModel):
     ultima_visita: Optional[str] = None
     tags: Optional[list[str]] = None
     opt_in_marketing: Optional[bool] = None
-    estagio_kanban: Optional[str] = None
     notas: Optional[str] = None
     frequencia_visitas: Optional[int] = None
 
-class ContactUpdate(BaseModel):
+class ContactUpdate(ContactStageFields):
     nome: Optional[str] = None
     sobrenome: Optional[str] = None
     email: Optional[str] = None
@@ -224,9 +242,8 @@ class ContactUpdate(BaseModel):
     ultima_visita: Optional[str] = None
     tags: Optional[list[str]] = None
     opt_in_marketing: Optional[bool] = None
-    estagio_kanban: Optional[str] = None
     notas: Optional[str] = None
     frequencia_visitas: Optional[int] = None
 
-class ContactKanbanMove(BaseModel):
+class ContactKanbanMove(ContactStageFields):
     estagio_kanban: str

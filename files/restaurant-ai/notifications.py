@@ -9,8 +9,37 @@ import os
 import json
 import re
 import urllib.request
+from dataclasses import dataclass
 
 _twilio_client = None
+
+
+@dataclass
+class NotificationResult:
+    state: str
+    provider_message_sid: str | None = None
+    provider_status: str | None = None
+    reason: str | None = None
+
+    def __bool__(self):
+        return self.state == "accepted"
+
+
+def whatsapp_address(number: str) -> str:
+    value = re.sub(r"[\s()\-]", "", (number or "").removeprefix("whatsapp:"))
+    if not re.fullmatch(r"\+?[1-9][0-9]{7,14}", value):
+        raise ValueError("Número WhatsApp ausente ou inválido")
+    return "whatsapp:+" + value.lstrip("+")
+
+
+def accepted_message(message):
+    sid = getattr(message, "sid", None)
+    status = getattr(message, "status", None)
+    if not isinstance(sid, str) or not re.fullmatch(r"SM[0-9a-fA-F]{32}", sid):
+        raise RuntimeError("Twilio não retornou SID válido; aceitação incerta")
+    if status in ("failed", "undelivered", "canceled"):
+        raise RuntimeError("Twilio rejeitou a mensagem")
+    return {"provider_message_sid": sid, "provider_status": status}
 
 def _client():
     global _twilio_client
@@ -74,27 +103,9 @@ def notify_handoff(
     Fora da janela de 24h retorna error 63016 (undelivered). Não usar para notificações
     de equipe enquanto não houver content_sid aprovado.
     """
-    client = _client()
-    if not client:
-        return
-    body = (
-        f"🚨 *Atendimento humano solicitado*\n\n"
-        f"Restaurante: {restaurant_nome}\n"
-        f"Cliente: {customer_phone}\n"
-        f"Motivo: {motivo}\n\n"
-        f"Contexto:\n{resumo}\n\n"
-        f"Acesse o painel ou contate o cliente diretamente."
-    )
-    raw_from = os.environ.get("TWILIO_FROM_NUMBER", "")
-    from_number = raw_from.replace("whatsapp:", "").strip()
-    try:
-        client.messages.create(
-            from_=f"whatsapp:{from_number}",
-            to=f"whatsapp:{team_whatsapp}",
-            body=body,
-        )
-    except Exception as e:
-        print(f"[HANDOFF] Twilio falhou: {e!r}")
+    # This legacy helper has no tenant sender or approved template contract.
+    # It has no production callers; refuse rather than route via a global sender.
+    return NotificationResult("skipped", reason="approved_tenant_template_not_configured")
 
 
 def notify_escalacao_gerente(
@@ -102,7 +113,7 @@ def notify_escalacao_gerente(
     gerente_whatsapp: str,
     customer_phone: str,
     motivo: str,
-) -> bool:
+) -> NotificationResult:
     """Rota clínica: solicita envio ao gerente da unidade, sem prometer entrega.
 
     Texto livre exige janela de 24h aberta pelo gerente com o número da clínica.
@@ -113,17 +124,13 @@ def notify_escalacao_gerente(
     client = _client()
     if not client:
         print("[ESCALACAO] Twilio não configurado; envio não solicitado")
-        return False
-
-    def whatsapp_address(number: str) -> str:
-        value = re.sub(r"[\s()\-]", "", (number or "").removeprefix("whatsapp:"))
-        if not re.fullmatch(r"\+?[1-9][0-9]{7,14}", value):
-            raise ValueError("Número WhatsApp ausente ou inválido")
-        return "whatsapp:+" + value.lstrip("+")
+        return NotificationResult("skipped", reason="provider_unavailable")
 
     try:
         sender = whatsapp_address(from_number)
         recipient = whatsapp_address(gerente_whatsapp)
+        if sender == recipient:
+            return NotificationResult("skipped", reason="sender_equals_recipient")
         clean_motivo = motivo.replace("[LARA]:", "").replace("[LARA]", "").strip()
         msg = client.messages.create(
             from_=sender,
@@ -134,14 +141,12 @@ def notify_escalacao_gerente(
                 f"Motivo: {clean_motivo}"
             ),
         )
-        if msg.status in ("failed", "undelivered", "canceled"):
-            print(f"[ESCALACAO] Twilio rejeitou envio sid={msg.sid} status={msg.status}")
-            return False
+        observed = accepted_message(msg)
         print(f"[ESCALACAO] Twilio aceitou solicitação sid={msg.sid} status={msg.status}; entrega não confirmada")
-        return True
+        return NotificationResult("accepted", **observed)
     except Exception as e:
         print(f"[ESCALACAO] Envio não solicitado ou rejeitado (best-effort): {e!r}")
-        return False
+        return NotificationResult("unconfirmed", reason=type(e).__name__)
 
 
 def send_to_customer(
@@ -153,7 +158,7 @@ def send_to_customer(
     """Envia mensagem (e opcionalmente mídia) para o cliente via Twilio.
 
     Usa restaurant_number como remetente (número que recebeu a mensagem do cliente).
-    Fallback para TWILIO_FROM_NUMBER apenas quando restaurant_number estiver vazio.
+    Exige o remetente da unidade; não há fallback global.
     media_url: URL pública de arquivo (PDF, imagem) — entregue como anexo WhatsApp.
 
     Lança exceção em caso de falha — callers decidem como tratar:
@@ -162,19 +167,19 @@ def send_to_customer(
     """
     client = _client()
     if not client:
-        print(f"[MSG → {customer_phone}] (Twilio não configurado): {message[:80]}")
-        return
-    raw_sender = restaurant_number or os.environ.get("TWILIO_FROM_NUMBER", "")
-    # Normaliza: remove "whatsapp:" prefix se já estiver no env var
-    sender = raw_sender.replace("whatsapp:", "").strip()
-    # Normaliza: garante formato E.164 no destinatário
-    to_number = customer_phone if customer_phone.startswith("+") else f"+{customer_phone}"
+        raise RuntimeError("Twilio não configurado; envio não solicitado")
+    sender = whatsapp_address(restaurant_number)
+    to_number = whatsapp_address(customer_phone)
+    if sender == to_number:
+        raise ValueError("Remetente e destinatário não podem ser o mesmo número")
     kwargs: dict = {
-        "from_": f"whatsapp:{sender}",
-        "to": f"whatsapp:{to_number}",
+        "from_": sender,
+        "to": to_number,
         "body": message,
     }
     if media_url:
         kwargs["media_url"] = [media_url]
     msg = client.messages.create(**kwargs)
-    print(f"[MSG → {to_number}] Twilio OK sid={msg.sid}")
+    observed = accepted_message(msg)
+    print(f"[MSG] Twilio aceitou sid={msg.sid}; entrega não confirmada")
+    return observed

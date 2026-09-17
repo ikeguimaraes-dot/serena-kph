@@ -20,6 +20,7 @@ import database as db
 from agent_prompt import build_prompt, _FALLBACK_BODY
 from agent_context import build_contact_context
 from agent_tools import TOOLS, execute_tool
+from llm_usage import observed_call, metric_cost_fields
 
 client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 MODEL = "claude-sonnet-4-6"
@@ -171,6 +172,7 @@ class RestaurantAgent:
         self, user_phone: str, restaurant_phone: str, message: str, profile_name: str = "",
         media_url: str | None = None, media_type: str | None = None,
         media_bytes: bytes | None = None,
+        source_message_sid: str | None = None, ctwa_clid: str | None = None,
     ) -> str:
         print(f"[AGENT] process user={user_phone!r} restaurant_phone={restaurant_phone!r} profile_name={profile_name!r}")
         
@@ -226,7 +228,8 @@ class RestaurantAgent:
             print(f"[AGENT] ensure_contact falhou user={user_phone!r}: {e!r}")
 
         if await db.is_in_handoff(user_phone, rid):
-            await db.save_message(user_phone, rid, "user", message, media_url, media_type)
+            await db.save_message(user_phone, rid, "user", message, media_url, media_type,
+                                  source_message_sid=source_message_sid, ctwa_clid=ctwa_clid)
             return None
 
         # Visão — injeta imagem no turno atual se tipo suportado e ≤5MB
@@ -251,7 +254,12 @@ class RestaurantAgent:
             else:
                 print(f"[VISION] ignorada — {_sz//1024}KB > 5120KB")
 
-        history = await db.get_history(user_phone, rid, MAX_HISTORY)
+        # Exclude this SID on retries and persist before any reservation tool:
+        # the CTWA trigger can then see a referral received in this same turn.
+        history = await db.get_history(user_phone, rid, MAX_HISTORY,
+                                       exclude_source_message_sid=source_message_sid)
+        await db.save_message(user_phone, rid, "user", message, media_url, media_type,
+                              source_message_sid=source_message_sid, ctwa_clid=ctwa_clid)
         if _vision_block:
             history.append({"role": "user", "content": [_vision_block, {"type": "text", "text": message}]})
         else:
@@ -272,12 +280,15 @@ class RestaurantAgent:
             hid = await db.create_handoff(user_phone, rid, handoff_motivo)
             print(f"[AGENT] Handoff criado id={hid} user={user_phone} motivo={handoff_motivo!r}")
             response_text = (
-                "Vou te conectar com um de nossos atendentes agora. 🙏\n"
-                "Um momento, por favor."
+                "Registrei sua solicitação para nossa equipe. 🙏\n"
+                "O atendimento continua por aqui."
             )
 
-        await db.save_message(user_phone, rid, "user", message, media_url, media_type)
-        await db.save_message(user_phone, rid, "assistant", response_text)
+        # Operator may take over while the model is generating. Read the live
+        # state again (not a cached prompt/status); still retain observed usage.
+        human_took_over = not handoff_triggered and await db.is_in_handoff(user_phone, rid)
+        if not human_took_over:
+            await db.save_message(user_phone, rid, "assistant", response_text)
 
         # ── Métricas (best-effort, não bloqueia resposta) ────
         try:
@@ -296,6 +307,8 @@ class RestaurantAgent:
                 "intencao_detectada": _detect_intent(message),
                 "num_mensagens": len(history),
                 "prompt_versao_id": prompt_versao_id,
+                "source_message_sid": source_message_sid,
+                **metric_cost_fields(result.get("usage_calls", [])),
             }
             metric_id = await db.record_serena_metric(metric)
             if handoff_triggered and metric_id and handoff_motivo:
@@ -303,13 +316,16 @@ class RestaurantAgent:
         except Exception as e:
             print(f"[AGENT] record_serena_metric falhou: {e!r}")
 
-        return response_text
+        return None if human_took_over else response_text
 
     async def _run(self, system, messages, user_phone, rid, read_only=False) -> dict:
         msgs = list(messages)
         tokens_input = 0
         tokens_output = 0
         tools_called: list[str] = []
+        usage_calls = []
+        price_evidence = []
+        unknown_availability = None
 
         for _ in range(MAX_ITERATIONS):
             response = await asyncio.to_thread(
@@ -319,6 +335,7 @@ class RestaurantAgent:
                 messages=msgs, tools=TOOLS,
             )
             usage = getattr(response, "usage", None)
+            usage_calls.append(observed_call(response))
             if usage:
                 tokens_input  += getattr(usage, "input_tokens",  0) or 0
                 tokens_output += getattr(usage, "output_tokens", 0) or 0
@@ -335,6 +352,7 @@ class RestaurantAgent:
                             "tokens_input": tokens_input,
                             "tokens_output": tokens_output,
                             "tools_called": tools_called,
+                            "usage_calls": usage_calls,
                         }
                 ac = [{"type":"text","text":b.text} if b.type=="text"
                       else {"type":"tool_use","id":b.id,"name":b.name,"input":b.input}
@@ -351,6 +369,10 @@ class RestaurantAgent:
                             res = "MODO_TESTE_SEM_ESCRITA: ação não executada. Não confirme reserva, alteração ou envio."
                         else:
                             res = await execute_tool(b.name, b.input, user_phone, rid)
+                        if b.name in {'lookup_menu', 'calcular_proposta', 'gerar_proposta'}:
+                            price_evidence.append(str(res))
+                        if b.name == 'verificar_disponibilidade' and str(res).startswith('AGENDA_UNCONFIGURED:'):
+                            unknown_availability = b.input
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})
                 continue
@@ -361,11 +383,19 @@ class RestaurantAgent:
                     if hasattr(b,"text"):
                         text = b.text
                         break
+                if rid in {'meet_and_eat', 'madonna_cucina', 'freneze'}:
+                    from response_evidence import check_prices
+                    text = check_prices(text, price_evidence)
+                if unknown_availability is not None:
+                    from tools import get_reservation_link
+                    link = get_reservation_link(rid, pessoas=unknown_availability.get('pessoas'), data=unknown_availability.get('data'))
+                    text = f'A disponibilidade para essa data precisa ser confirmada. Consulte a página de reservas: {link}\nSe preferir, posso chamar a equipe.'
                 return {
                     "text": text or "Desculpe, tente novamente.",
                     "tokens_input": tokens_input,
                     "tokens_output": tokens_output,
                     "tools_called": tools_called,
+                    "usage_calls": usage_calls,
                 }
 
         return {
@@ -373,4 +403,5 @@ class RestaurantAgent:
             "tokens_input": tokens_input,
             "tokens_output": tokens_output,
             "tools_called": tools_called,
+            "usage_calls": usage_calls,
         }

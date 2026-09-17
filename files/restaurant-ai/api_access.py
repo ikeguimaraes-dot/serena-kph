@@ -14,6 +14,8 @@ import database as db
 
 
 PUBLIC_ROUTES = {
+    ("GET", "/api/public/reservations/{restaurant_id}"),
+    ("POST", "/api/public/reservations/{restaurant_id}"),
     ("GET", "/api/agenda/{restaurant_id}/disponibilidade"),
     ("POST", "/api/widget/reserva/{restaurant_id}"),
 }

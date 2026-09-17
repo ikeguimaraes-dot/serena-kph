@@ -18,7 +18,8 @@ Chamada por:
 import os
 import json
 import asyncio
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
+from commercial_report import build_report, TIMEZONE
 
 import database as db
 import email_gateway
@@ -34,7 +35,7 @@ async def _collect_restaurant_data(rid: str, dias: int) -> dict:
     """Coleta todos os KPIs de um restaurante em paralelo."""
     (
         overview, cats, friccoes, custo, intents,
-        pipeline, sla, ltv_top5, receita_semana,
+        pipeline, sla, ltv_top5, receita_semana, comercial,
     ) = await asyncio.gather(
         db.serena_overview(dias, restaurant_id=rid),
         db.serena_handoffs_categorizados(dias, restaurant_id=rid),
@@ -45,6 +46,7 @@ async def _collect_restaurant_data(rid: str, dias: int) -> dict:
         db.get_handoff_sla_stats(rid),
         _get_ltv_top5(rid),
         _get_receita_semana(rid, dias),
+        build_report(rid, datetime.now(TIMEZONE).date() - timedelta(days=dias), datetime.now(TIMEZONE).date()),
         return_exceptions=True,
     )
 
@@ -62,6 +64,7 @@ async def _collect_restaurant_data(rid: str, dias: int) -> dict:
         "sla":            _safe(sla,             {}),
         "ltv_top5":       _safe(ltv_top5,        []),
         "receita_semana": _safe(receita_semana,  {}),
+        "comercial_deterministico": _safe(comercial, {"disponivel": False, "lacuna": "Falha na coleta; nao tratar como zero."}),
     }
 
 
@@ -73,14 +76,15 @@ async def _get_ltv_top5(rid: str) -> list[dict]:
                    ct.ltv_total, ct.total_eventos
             FROM contacts ct
             WHERE ct.ltv_total > 0
+              AND ct.restaurant_id = $1
               AND EXISTS (
                 SELECT 1 FROM reservas r
                 WHERE r.cliente_phone = ct.celular
-                  AND r.restaurant_id = $1
+                  AND r.restaurant_id = ct.restaurant_id
                 UNION ALL
                 SELECT 1 FROM ordens_servico o
                 WHERE o.cliente_phone = ct.celular
-                  AND o.restaurant_id = $1
+                  AND o.restaurant_id = ct.restaurant_id
               )
             ORDER BY ct.ltv_total DESC
             LIMIT 5
@@ -122,14 +126,17 @@ async def _get_receita_semana(rid: str, dias: int) -> dict:
             SELECT
                 COUNT(DISTINCT m.user_phone) FILTER (WHERE m.role = 'user')     AS leads,
                 COUNT(DISTINCT r.cliente_phone)                                  AS convertidos
-            FROM messages m
+            FROM conversations m
             LEFT JOIN reservas r
               ON r.cliente_phone = m.user_phone
-              AND r.restaurant_id = $1
-              AND r.status IN ('confirmada','realizada')
-              AND r.data >= CURRENT_DATE - ($2 || ' days')::INTERVAL
+              AND r.restaurant_id = m.restaurant_id
+              AND r.status IN ('confirmada','realizada','concluida')
+              AND r.criado_em >= m.created_at
+              AND r.criado_em <= NOW()
             WHERE m.restaurant_id = $1
+              AND m.role = 'user'
               AND m.created_at >= NOW() - ($2 || ' days')::INTERVAL
+              AND m.created_at <= NOW()
         """, rid, str(dias))
 
     leads      = int(conv["leads"] or 0)
@@ -145,6 +152,7 @@ async def _get_receita_semana(rid: str, dias: int) -> dict:
         "taxa_conversao_pct": taxa_conv,
         "leads":              leads,
         "convertidos":        convert,
+        "qualificacao": "Valores registrados de reservas/OS, sem conciliacao; total_brl legado nao e receita realizada nem ROI.",
     }
 
 
@@ -204,16 +212,20 @@ def _build_prompt(payload: dict) -> str:
         pip = r.get("pipeline", {}).get("resumo", {})
         sla = r.get("sla", {})
         top5 = r.get("ltv_top5", [])
+        commercial = r.get("comercial_deterministico", {})
 
         resumos.append(f"""
 ### {rid}
 - Mensagens: {ov.get('total_mensagens','—')} | Sessões: {ov.get('total_sessions','—')}
 - Handoffs: {ov.get('handoffs_abertos','—')} abertos | {ov.get('taxa_resolucao_pct','—')}% resolvidos
-- Receita semana: R${rec.get('total_brl',0):,.0f} (reservas: R${rec.get('reservas_pagas_brl',0):,.0f} + OS: R${rec.get('os_realizadas_brl',0):,.0f})
+- Pagamentos registrados em reservas: R${rec.get('reservas_pagas_brl',0):,.0f}; valores de OS realizadas: R${rec.get('os_realizadas_brl',0):,.0f}. Sem conciliação, não somar como faturamento.
 - Taxa de conversão: {rec.get('taxa_conversao_pct',0)}% ({rec.get('convertidos',0)}/{rec.get('leads',0)} leads)
 - Pipeline aberto: R${pip.get('pipeline_aberto_brl',0):,.0f} | OS ativas: {pip.get('os_ativas',0)}
 - SLA: TMA {sla.get('tma_minutos',0):.0f}min | taxa {sla.get('taxa_sla_pct',0)}% | vencidos {sla.get('vencidos',0)}
 - Top LTV: {', '.join(f"{c['nome']} R${c['ltv_total']:,.0f}" for c in top5[:3]) or '—'}
+- Funil determinístico observado: {json.dumps(commercial.get('funil_por_contato', {}), ensure_ascii=False)}
+- Custo LLM com cache/modelo observado: {json.dumps(commercial.get('custo_llm', {}), ensure_ascii=False)}
+- Lacunas: {json.dumps(commercial.get('lacunas', ['Coleta comercial indisponível']), ensure_ascii=False)}
 """)
 
     return f"""Você é o analista de inteligência da Serena, IA concierge de restaurantes premium.
@@ -225,9 +237,10 @@ Estrutura obrigatória:
 - 2–3 bullets com os principais números do período
 
 ## Performance Comercial
-- Receita consolidada e comparação qualitativa (crescimento/queda)
+- Pagamentos registrados e lacunas de conciliação. Não inferir faturamento, ROI ou custo Twilio.
+- Comparar crescimento/queda somente se houver um período anterior nos dados.
 - Pipeline em aberto: oportunidades e riscos
-- Taxa de conversão: análise e benchmark esperado (>15%)
+- Taxa de conversão observada com sua definição. Não inventar benchmarks.
 - Top LTV: mencione os 3 primeiros clientes (use apenas nome/apelido)
 
 ## Atendimento & SLA
@@ -277,7 +290,7 @@ def _maybe_send_email(
         rows_html += f"""
         <tr>
           <td style="padding:6px 8px;font-weight:600">{rid_name}</td>
-          <td style="padding:6px 8px;text-align:right">R${rec.get('total_brl',0):,.0f}</td>
+          <td style="padding:6px 8px;text-align:right">R${rec.get('reservas_pagas_brl',0):,.0f}</td>
           <td style="padding:6px 8px;text-align:right">{rec.get('taxa_conversao_pct',0)}%</td>
           <td style="padding:6px 8px;text-align:right">R${pip.get('pipeline_aberto_brl',0):,.0f}</td>
           <td style="padding:6px 8px;text-align:right">{sla.get('tma_minutos',0):.0f} min</td>
@@ -293,7 +306,7 @@ def _maybe_send_email(
     <thead>
       <tr style="background:#f5f5f5">
         <th style="padding:6px 8px;text-align:left">Restaurante</th>
-        <th style="padding:6px 8px;text-align:right">Receita</th>
+        <th style="padding:6px 8px;text-align:right">Pagamentos de reservas*</th>
         <th style="padding:6px 8px;text-align:right">Conversão</th>
         <th style="padding:6px 8px;text-align:right">Pipeline</th>
         <th style="padding:6px 8px;text-align:right">TMA</th>
@@ -302,6 +315,7 @@ def _maybe_send_email(
     </thead>
     <tbody>{rows_html}</tbody>
   </table>
+  <p style="font-size:11px;color:#666">* Valores registrados, sem conciliação com PDV/OS. Não representam faturamento total.</p>
 
   <div style="border-left:3px solid #D4A574;padding:8px 16px;background:#fafafa">{summary_html}</div>
   <p style="margin-top:24px"><a href="{link}" style="color:#D4A574;text-decoration:none;font-weight:600">Abrir no painel →</a></p>

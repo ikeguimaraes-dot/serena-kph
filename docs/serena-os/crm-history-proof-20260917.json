@@ -1,0 +1,36 @@
+{
+  "verified_at": "2026-09-17T04:59:17.514743+00:00",
+  "duration_seconds": 14.12,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_crm_history_restore.py",
+    "sha256": "616c3fd72e03fa82f596afe981328ff571f1717e383057315154a5ae072a5aa3",
+    "success": true
+  },
+  "checks": {
+    "success": true,
+    "migration_replay": true,
+    "existing_contacts_preserved": 51,
+    "legacy_loss_without_reason_remains_editable": true,
+    "no_historical_events_backfilled": true,
+    "reservation_sync_source_verified": true,
+    "same_phone_tenant_isolation": true,
+    "lost_requires_explicit_reason": true,
+    "reason_edit_and_reopen_history": true,
+    "retry_no_duplicate_event": true,
+    "actor_context_cleared_between_requests": true,
+    "no_automatic_loss": true,
+    "reservation_status_history": true,
+    "private_history_rls_and_grants": true,
+    "security_advisor": "unavailable_for_restored_cluster",
+    "production_writes": 0,
+    "external_messages": 0
+  },
+  "offline_tests": 24,
+  "production_migration_applied": false
+}

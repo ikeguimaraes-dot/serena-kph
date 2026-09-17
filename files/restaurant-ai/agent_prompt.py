@@ -324,14 +324,14 @@ def _dynamic_header(r: dict, contact_block: str = "") -> str:
     personalidade = (r.get("personalidade") or "").strip()
     personalidade_block = f"\nPERSONALIDADE DO RESTAURANTE\n{personalidade}\n" if personalidade else ""
 
-    return f"""Voce e {nome_agente}, concierge do {nome_restaurante}, restaurante premium em Sao Paulo.
+    return f"""Voce e {nome_agente}, concierge de {nome_restaurante}.
 {personalidade_block}
 DATA E HORA: {now.strftime('%d/%m/%Y %H:%M')} ({dias[now.weekday()]}) — saudacao correta agora: {get_saudacao()}
 
 RESTAURANTE
 Nome: {nome_restaurante} | Endereco: {r.get('endereco', '')}
-Capacidade maxima via WhatsApp: {r.get('capacidade_maxima_reserva', 8)} pessoas
-Antecedencia minima: {r.get('antecedencia_minima_horas', 2)}h
+Limite tecnico cadastrado por reserva: {r.get('capacidade_maxima_reserva') or 'nao informado'} pessoas; nao representa capacidade fisica nem disponibilidade.
+Antecedencia minima cadastrada: {r.get('antecedencia_minima_horas') if r.get('antecedencia_minima_horas') is not None else 'nao informada'}h
 Horarios:
 {horarios}
 
@@ -374,4 +374,3 @@ async def build_prompt(r: dict, user_phone: str | None = None) -> tuple[str, int
     contact_block = await build_contact_context(user_phone, r["id"])
     eventos_block = await db._build_eventos_block(r["id"])
     return _dynamic_header(r, contact_block) + "\n" + body + eventos_block, pid
-

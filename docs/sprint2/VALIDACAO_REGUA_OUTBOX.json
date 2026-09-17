@@ -1,0 +1,35 @@
+{
+  "verified_at": "2026-09-17T04:58:21.703415+00:00",
+  "duration_seconds": 11.48,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_outreach_restore.py",
+    "sha256": "fae837e8a0767b203897adb20bc2450c2156ea174eaaf07c3f88a3228e4a4b6d",
+    "success": true
+  },
+  "integration_assertions": {
+    "success": true,
+    "migration_replay": true,
+    "rls_and_browser_privileges": true,
+    "legacy_boolean_not_consent": true,
+    "consent_evidence_actor_and_revocation": true,
+    "tenant_sender_and_reservation_isolation": true,
+    "dry_run_no_outbox_writes": true,
+    "concurrent_event_single_attempt": true,
+    "sent_requires_sid": true,
+    "unknown_and_failed_not_retried_or_marked_sent": true,
+    "external_messages_sent": 0
+  },
+  "offline_tests": {
+    "new": 6,
+    "existing_regressions": 27,
+    "total": 33,
+    "result": "PASS"
+  },
+  "production_changes_by_this_task": false
+}

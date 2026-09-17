@@ -35,6 +35,8 @@ from email_service import (
     send_comprovante_pagamento,
 )
 from api_access import authorize_api_request, contact_tenant
+from reservation_service import BookingError
+from public_reservations import router as public_reservation_router
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
@@ -103,6 +105,7 @@ def _start_weekly_cron():
 
 app = FastAPI(title="Restaurant AI — API", lifespan=lifespan,
               dependencies=[Depends(authorize_api_request)])
+app.include_router(public_reservation_router)
 
 # CORS — whitelist em produção (env CORS_ORIGINS=comma,separated). Default seguro.
 _default_origins = "https://madonna-painel.vercel.app,https://madonna-cucina-painel.vercel.app,http://localhost:3000"
@@ -127,6 +130,11 @@ def require_admin(x_admin_secret: Optional[str] = Header(None)):
     if x_admin_secret != secret:
         raise HTTPException(403, "Acesso negado")
     return True
+
+
+# Read-only commercial report; same privileged dependency as other reports.
+from commercial_report import create_router as _commercial_report_router
+app.include_router(_commercial_report_router(require_admin))
 
 
 # ── Twilio HMAC — valida autenticidade do webhook ─────────────
@@ -179,7 +187,8 @@ async def validate_twilio_signature(
 
 MAX_MSG_LEN = 2000
 
-async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
+async def _tentar_capturar_nps(telefone: str, texto: str, restaurant_phone: str,
+                             source_message_sid: str | None = None, ctwa_clid: str | None = None) -> bool:
     """Retorna True se a mensagem era um NPS (1-10) e foi capturada."""
     import re as _re
     if not _re.fullmatch(r'[1-9]|10', texto.strip()):
@@ -187,8 +196,10 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     nota = int(texto.strip())
     # Busca OS com D+3 enviado, sem NPS ainda, desse telefone
     query = """
-        SELECT os.id FROM ordens_servico os
+        SELECT os.id, os.restaurant_id FROM ordens_servico os
+        JOIN restaurants r ON r.id=os.restaurant_id
         WHERE os.cliente_phone = $1
+          AND r.whatsapp_number = $2 AND r.ativo=true
           AND os.regua_d3_enviado_em IS NOT NULL
           AND os.nps_score IS NULL
         ORDER BY os.regua_d3_enviado_em DESC
@@ -196,16 +207,20 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     """
     from database import pool
     async with pool().acquire() as c:
-        row = await c.fetchrow(query, telefone)
+        row = await c.fetchrow(query, telefone, restaurant_phone)
     if row:
-        await db.registrar_nps(row["id"], nota)
-        return True
+        captured = await db.registrar_nps(row["id"], nota, row["restaurant_id"])
+        if captured:
+            await db.save_message(telefone, row["restaurant_id"], "user", texto,
+                                  source_message_sid=source_message_sid, ctwa_clid=ctwa_clid)
+        return captured
     return False
 
 
 async def _process_and_reply(
     user_phone: str, restaurant_phone: str, message: str, profile_name: str,
     media_items: list | None = None,
+    source_message_sid: str | None = None, ctwa_clid: str | None = None,
 ):
     """Processa mensagem via LLM e envia resposta via Twilio outbound.
 
@@ -234,7 +249,7 @@ async def _process_and_reply(
                 print(f"[MEDIA] download falhou (best-effort): {e!r}")
 
         # Captura NPS antes de passar para o agente
-        if await _tentar_capturar_nps(user_phone, message):
+        if await _tentar_capturar_nps(user_phone, message, restaurant_phone, source_message_sid, ctwa_clid):
             nota = int(message.strip())
             if nota >= 9:
                 resposta_nps = "Que incrível! 🌟 Obrigado pela sua avaliação — seu feedback é muito importante para nós!"
@@ -249,6 +264,7 @@ async def _process_and_reply(
             user_phone, restaurant_phone, message, profile_name=profile_name,
             media_url=storage_url, media_type=storage_type,
             media_bytes=_vision_bytes,
+            source_message_sid=source_message_sid, ctwa_clid=ctwa_clid,
         )
         if response_text is None:
             return
@@ -270,6 +286,7 @@ async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
+    MessageSid: str = Form(""), ReferralCtwaClid: str = Form(""),
     NumMedia: int = Form(0),
     MediaUrl0: str = Form(""), MediaContentType0: str = Form(""),
     MediaUrl1: str = Form(""), MediaContentType1: str = Form(""),
@@ -287,6 +304,12 @@ async def whatsapp_webhook(
     ]
 
     message = Body.strip()
+
+    # Provider-signed echoes from our own sender must not re-enter the agent.
+    # Compare canonical digits before media work or any outgoing response.
+    sender_digits = __import__('re').sub(r'\D','',To)
+    if sender_digits and __import__('re').sub(r'\D','',From) == sender_digits:
+        return _twiml_ack()
 
     # Mensagem sem texto e sem mídia — ignorar (ex: read receipts)
     if not message and not media_items:
@@ -317,7 +340,8 @@ async def whatsapp_webhook(
     # Retorna imediatamente para evitar timeout do Twilio (15s).
     # O processamento LLM + envio ocorrem em background via Twilio outbound.
     background_tasks.add_task(
-        _process_and_reply, user_phone, restaurant_phone, message, ProfileName, media_items or None
+        _process_and_reply, user_phone, restaurant_phone, message, ProfileName, media_items or None,
+        MessageSid.strip() or None, ReferralCtwaClid.strip() or None,
     )
     return _twiml_ack()
 
@@ -513,7 +537,7 @@ async def list_handoff(rid: str, status: Optional[str]=None):
 @app.post("/api/handoff/{hid}/reply")
 async def handoff_reply(hid: int, data: HandoffReply):
     """Atendente responde pelo painel — mensagem vai via Twilio para o cliente."""
-    print(f"[HANDOFF REPLY] chamado hid={hid} atendente={data.atendente_nome!r} msg={data.mensagem!r}")
+    print(f"[HANDOFF REPLY] solicitado hid={hid}")
 
     session = await db.get_handoff_by_id(hid)
     if not session:
@@ -521,26 +545,30 @@ async def handoff_reply(hid: int, data: HandoffReply):
         raise HTTPException(404)
 
     restaurant = await db.get_restaurant_full(session["restaurant_id"])
-    print(f"[HANDOFF REPLY] enviando Twilio from={os.environ.get('TWILIO_FROM_NUMBER')!r} to={session['user_phone']!r}")
+    if not restaurant:
+        raise HTTPException(404, "Unidade não encontrada")
 
     try:
-        notif.send_to_customer(
+        observed = await asyncio.to_thread(notif.send_to_customer,
             restaurant["whatsapp_number"],
             session["user_phone"],
             data.mensagem,
         )
-        print(f"[HANDOFF REPLY] Twilio OK hid={hid}")
+        if not observed or not observed.get("provider_message_sid"):
+            raise RuntimeError("Aceitação sem SID")
     except Exception as e:
         # Twilio falhou — NÃO salva msg no banco, NÃO avança status, retorna 502
         # pra o painel mostrar o erro pro operador em vez de esconder.
-        print(f"[HANDOFF REPLY] Twilio FALHOU hid={hid}: {e!r}")
-        raise HTTPException(502, f"Twilio não entregou a mensagem: {e}")
+        print(f"[HANDOFF REPLY] aceitação não confirmada hid={hid}: {type(e).__name__}")
+        raise HTTPException(502, "Não foi possível confirmar a aceitação pela Twilio. Confira os logs antes de reenviar.")
 
-    await db.save_message(session["user_phone"], session["restaurant_id"],
-                          "assistant", f"[{data.atendente_nome}] {data.mensagem}")
-    await db.update_handoff_status(hid, "em_atendimento", data.atendente_nome)
-    print(f"[HANDOFF REPLY] concluído hid={hid} twilio_ok=True")
-    return {"ok": True}
+    try:
+        await db.record_human_handoff_reply(hid,data.atendente_nome,data.mensagem,observed["provider_message_sid"])
+    except Exception:
+        raise HTTPException(503, {"message": "Twilio aceitou a mensagem, mas a gravação local falhou. Não reenviar sem conciliação.", **observed})
+    _reports_cache.clear()
+    _serena_metrics_cache.clear()
+    return {"ok": True, "accepted": True, "delivery_confirmed": False, **observed}
 
 @app.post("/api/handoff/{hid}/assume")
 async def handoff_assume(hid: int, data: HandoffResolve):
@@ -549,12 +577,15 @@ async def handoff_assume(hid: int, data: HandoffResolve):
     if not session:
         raise HTTPException(404)
     await db.update_handoff_status(hid, "em_atendimento", data.atendente_nome)
+    _reports_cache.clear()
     print(f"[HANDOFF ASSUME] hid={hid} atendente={data.atendente_nome!r}")
     return {"ok": True, "user_phone": session["user_phone"]}
 
 @app.post("/api/handoff/{hid}/resolve")
 async def handoff_resolve(hid: int, data: HandoffResolve):
-    await db.update_handoff_status(hid, "resolvido", data.atendente_nome)
+    if not await db.update_handoff_status(hid, "resolvido", data.atendente_nome):
+        raise HTTPException(404, "Handoff não encontrado")
+    _reports_cache.clear()
     return {"ok": True}
 
 
@@ -642,16 +673,11 @@ async def nova_reserva(restaurant_id: str, body: dict = Body(...)):
 
     body["restaurant_id"] = restaurant_id
 
-    # Verifica disponibilidade apenas se turno_id foi resolvido
-    if turno_id:
-        disponivel = await db.check_disponibilidade(
-            restaurant_id, body["data"], turno_id, int(body["posicoes"])
-        )
-        if not disponivel.get("disponivel"):
-            raise HTTPException(409, detail=disponivel.get("motivo", "Sem disponibilidade"))
-
-    reserva = await db.criar_reserva(body)
-    return reserva
+    # The shared creation path repeats checks under a transaction lock.
+    try:
+        return await db.criar_reserva(body, allow_legacy=True)
+    except BookingError as exc:
+        raise HTTPException(exc.status, detail=exc.message)
 
 @app.get("/api/agenda/{restaurant_id}/reservas/{reserva_id}")
 async def get_reserva(restaurant_id: str, reserva_id: str):
@@ -699,6 +725,7 @@ async def cancelar(restaurant_id: str, reserva_id: str):
 async def atualizar_status_reserva(
     restaurant_id: str,
     reserva_id: str,
+    request: Request,
     body: dict = Body(...),
 ):
     """Atualiza status genérico: no_show | realizada | confirmada | cancelada"""
@@ -706,7 +733,10 @@ async def atualizar_status_reserva(
     if not status:
         raise HTTPException(422, "Campo 'status' obrigatório")
     try:
-        reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status)
+        reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status,
+            operator_id=getattr(request.state, "operator", {}).get("id"))
+    except BookingError as exc:
+        raise HTTPException(exc.status, exc.message)
     except ValueError as e:
         raise HTTPException(422, str(e))
     if not reserva:
@@ -747,7 +777,10 @@ async def list_team(rid: str):
 
 @app.post("/api/restaurants/{rid}/team", status_code=201)
 async def add_team_member(rid: str, data: TeamMemberCreate):
-    return await db.create_team_member(rid, data.model_dump())
+    try:
+        return await db.create_team_member(rid, data.model_dump())
+    except ValueError as error:
+        raise HTTPException(422,str(error))
 
 
 # ════════════════════════════════════════════════════════════════
@@ -788,7 +821,9 @@ async def reports_full(rid: str, days: int = 7):
 @app.post("/api/contacts", status_code=201)
 async def upsert_contact(data: ContactUpsert, request: Request):
     """Cria ou atualiza contato pelo celular (upsert)."""
-    return await db.upsert_contact(data.model_dump(exclude_none=False), restaurant_id=contact_tenant(request))
+    actor = getattr(request.state, "operator", {})
+    return await db.upsert_contact(data.model_dump(exclude_none=False), restaurant_id=contact_tenant(request),
+                                   operator_id=actor.get("id"))
 
 @app.get("/api/contacts", dependencies=[Depends(require_admin)])
 async def list_contacts(
@@ -820,9 +855,9 @@ async def funil_stats(request: Request):
 
 @app.post("/api/contacts/mark-inactive", dependencies=[Depends(require_admin)])
 async def contacts_mark_inactive(threshold_days: int = 45):
-    """Move para 'Inativo' contatos sem visita há N+ dias. Cron-only — exige x-admin-secret."""
-    affected = await db.mark_inactive_contacts(threshold_days)
-    return {"affected": affected}
+    """Compatibility response: silence does not establish a loss reason."""
+    return {"affected": 0, "updated": 0, "deprecated": True,
+            "reason": "Classificação de perda exige motivo informado"}
 
 @app.get("/api/contacts/{celular}", dependencies=[Depends(require_admin)])
 async def get_contact(celular: str, request: Request):
@@ -841,8 +876,12 @@ async def contact_conversations(celular: str, request: Request, limit: int = 100
 
 @app.patch("/api/contacts/{celular}")
 async def patch_contact(celular: str, data: ContactUpdate, request: Request):
-    payload = {k: v for k, v in data.model_dump().items() if v is not None}
-    c = await db.update_contact(celular, payload, restaurant_id=contact_tenant(request))
+    payload = {k: v for k, v in data.model_dump(exclude_unset=True).items()
+               if v is not None or k == "motivo_perda_detalhe"}
+    kwargs = {"restaurant_id": contact_tenant(request)}
+    if "estagio_kanban" in payload:
+        kwargs["operator_id"] = getattr(request.state, "operator", {}).get("id")
+    c = await db.update_contact(celular, payload, **kwargs)
     if not c:
         raise HTTPException(404)
     return c
@@ -850,12 +889,28 @@ async def patch_contact(celular: str, data: ContactUpdate, request: Request):
 @app.patch("/api/contacts/{celular}/kanban", dependencies=[Depends(require_admin)])
 async def move_kanban(celular: str, data: ContactKanbanMove, request: Request):
     try:
-        c = await db.move_contact_kanban(celular, data.estagio_kanban, restaurant_id=contact_tenant(request))
+        c = await db.move_contact_kanban(
+            celular, data.estagio_kanban, restaurant_id=contact_tenant(request),
+            motivo_perda=data.motivo_perda, motivo_perda_detalhe=data.motivo_perda_detalhe,
+            operator_id=getattr(request.state, "operator", {}).get("id"))
     except ValueError as e:
         raise HTTPException(400, str(e))
     if not c:
         raise HTTPException(404)
     return c
+
+
+@app.get("/api/contacts/{celular}/kanban/history", dependencies=[Depends(require_admin)])
+async def contact_stage_history(celular: str, request: Request, limit: int = Query(100, ge=1, le=500)):
+    tenant = contact_tenant(request)
+    if not await db.get_contact(celular, restaurant_id=tenant):
+        raise HTTPException(404, "Contato não encontrado")
+    return await db.get_contact_stage_history(celular, tenant, limit=limit)
+
+
+@app.get("/api/agenda/{restaurant_id}/reservas/{reserva_id}/status/history", dependencies=[Depends(require_admin)])
+async def reservation_status_history(restaurant_id: str, reserva_id: str, limit: int = Query(100, ge=1, le=500)):
+    return await db.get_reserva_status_history(reserva_id, restaurant_id, limit=limit)
 
 
 @app.get("/api/contacts/{celular}/profile", dependencies=[Depends(require_admin)])
@@ -876,6 +931,7 @@ async def handoff_kanban(hid: int, data: dict):
     ok = await db.update_handoff_kanban(hid, stage)
     if not ok:
         raise HTTPException(400, "Stage inválido ou handoff não encontrado. Use: aguardando, em_atendimento, resolvido")
+    _reports_cache.clear()
     return {"ok": True}
 
 
@@ -900,10 +956,10 @@ def _periodo_to_days(periodo: str) -> int:
     return 7
 
 @app.get("/api/serena/metrics", dependencies=[Depends(require_admin)])
-async def serena_metrics(periodo: str = "7d"):
+async def serena_metrics(periodo: str = "7d", rid: Optional[str] = Query(None)):
     days = _periodo_to_days(periodo)
     agent_id = os.environ.get("AGENT_NAME")
-    rid = agent_id.lower().strip() if agent_id else None
+    rid = rid.strip() if rid else (agent_id.lower().strip() if agent_id else None)
     key = f"overview:{days}:{rid or ''}"
     if key in _serena_metrics_cache:
         return _serena_metrics_cache[key]
@@ -960,148 +1016,23 @@ async def serena_training_export(formato: str = "jsonl", limit: int = 1000):
     return PlainTextResponse(body, media_type="application/x-ndjson")
 
 
-# ── Nurture automático (Sprint 2) ─────────────────────────────
+# ── Régua auditável: compatibilidade das rotas antigas, prévia por padrão ──
+from outreach import create_router as _outreach_router, run as _run_outreach
+app.include_router(_outreach_router(require_admin))
+
 
 @app.post("/api/serena/nurture", dependencies=[Depends(require_admin)])
-async def serena_nurture(background_tasks: BackgroundTasks, dry_run: bool = False):
-    """Roda a régua de nurture: busca leads mornos inativos há 3+ dias e envia via Twilio.
+async def serena_nurture(background_tasks: BackgroundTasks, rid: str = Query(...), dry_run: bool = True):
+    return await _run_outreach(rid, "nurture", dry_run=dry_run)
 
-    Roda diariamente via cron externo (ex: Railway Cron ou GitHub Actions).
-    dry_run=true retorna os leads sem enviar mensagens.
-    """
-    leads = await db.get_nurture_leads(days_inactive=3)
-    if dry_run:
-        return {"dry_run": True, "leads": leads, "total": len(leads)}
-
-    restaurant = await db.get_restaurant_full(os.environ.get("AGENT_NAME", "madonna_cucina"))
-    sent = []
-    errors = []
-
-    for lead in leads:
-        celular = lead["celular"]
-        nome = (lead["nome"] or "").split()[0] or "você"
-        try:
-            msg = (
-                f"Oi {nome}! Ainda pensando em visitar a gente? "
-                f"Temos novidades que podem te interessar — e adoraríamos ajudar a encontrar a data perfeita. "
-                f"Me conta quando está pensando em vir! 😊"
-            )
-            background_tasks.add_task(
-                notif.send_to_customer,
-                restaurant["whatsapp_number"],
-                celular,
-                msg,
-            )
-            # Registra nas notas do contato
-            nota = f"[Nurture automático enviado em {__import__('datetime').date.today()}]"
-            notas_atuais = lead.get("notas") or ""
-            await db.update_contact(celular, {"notas": f"{notas_atuais}\n{nota}".strip()}, restaurant_id=lead["restaurant_id"])
-            sent.append(celular)
-        except Exception as e:
-            errors.append({"celular": celular, "error": str(e)})
-
-    return {"sent": len(sent), "errors": len(errors), "details": errors or None}
-
-
-# ─── Régua pós-evento ────────────────────────────────────────────
 
 @app.post("/api/serena/pos-evento", dependencies=[Depends(require_admin)])
-async def rodar_regua_pos_evento(
-    background_tasks: BackgroundTasks,
-    rid: str = Query("madonna_cucina"),
-):
-    background_tasks.add_task(_job_regua_pos_evento, rid)
-    return {"status": "job_iniciado", "restaurant_id": rid}
+async def rodar_regua_pos_evento(background_tasks: BackgroundTasks, rid: str = Query(...), dry_run: bool = True):
+    return await _run_outreach(rid, "pos_evento", dry_run=dry_run)
 
 
-async def _job_regua_pos_evento(restaurant_id: str):
-    from datetime import datetime, timezone, timedelta
-    agora = datetime.now(timezone.utc)
-
-    restaurant = await db.get_restaurant_full(restaurant_id)
-    restaurant_phone = restaurant["whatsapp_number"] if restaurant else None
-
-    os_list = await db.get_os_para_regua(restaurant_id)
-    enviados: list = []
-
-    for os_item in os_list:
-        os_id     = os_item["id"]
-        telefone  = os_item["telefone"]
-        nome      = (os_item["contact_nome"] or "você").split()[0]
-        titulo    = os_item["titulo"] or "o evento"
-        realizado = os_item["evento_realizado_em"]
-
-        if not realizado or not telefone or not restaurant_phone:
-            continue
-
-        delta = agora - realizado
-
-        _twilio = notif._client()
-        _from   = f"whatsapp:{restaurant_phone or os.environ.get('TWILIO_FROM_NUMBER', '')}"
-        _to     = f"whatsapp:{telefone}"
-        _vars   = json.dumps({"1": nome, "2": titulo})
-
-        # D+1 — Agradecimento (entre 20h e 30h após o evento)
-        if (
-            not os_item["regua_d1_enviado_em"]
-            and timedelta(hours=20) <= delta <= timedelta(hours=30)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HX7a16cfb714c360daa4cb1dd391839f1a",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d1")
-            enviados.append({"os_id": os_id, "etapa": "d1"})
-
-        # D+3 — NPS (entre 68h e 80h após o evento)
-        elif (
-            os_item["regua_d1_enviado_em"]
-            and not os_item["regua_d3_enviado_em"]
-            and timedelta(hours=68) <= delta <= timedelta(hours=80)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HXe90e74853e6f43815ed076964f39030b",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d3")
-            enviados.append({"os_id": os_id, "etapa": "d3"})
-
-        # D+7 — Fotos (entre 7d e 8d após o evento)
-        elif (
-            os_item["regua_d3_enviado_em"]
-            and not os_item["regua_d7_enviado_em"]
-            and timedelta(days=7) <= delta <= timedelta(days=8)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HXaacf87d6d7d582ff3a26c98bd41b9637",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d7")
-            enviados.append({"os_id": os_id, "etapa": "d7"})
-
-        # D+30 — Reativação (entre 30d e 32d após o evento)
-        elif (
-            os_item["regua_d7_enviado_em"]
-            and not os_item["regua_d30_enviado_em"]
-            and timedelta(days=30) <= delta <= timedelta(days=32)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HX2f99ec2032087dc650b2e84047345048",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d30")
-            enviados.append({"os_id": os_id, "etapa": "d30"})
-
-    print(f"[pos-evento] {len(enviados)} mensagens enviadas")
-    return {"enviados": len(enviados)}
+async def _job_regua_pos_evento(restaurant_id: str, dry_run: bool = True):
+    return await _run_outreach(restaurant_id, "pos_evento", dry_run=dry_run)
 
 
 # ── Versionamento de prompt ────────────────────────────────────

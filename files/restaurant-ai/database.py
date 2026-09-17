@@ -275,7 +275,7 @@ async def get_business_hours_for_date(rid: str, target_date) -> dict:
                 "dia": target_dia_acc,
             }
     return {
-        "especial": False, "aberto": False, "horario": None,
+        "especial": False, "aberto": None, "horario": None,
         "observacao": "Horário não cadastrado para este dia.",
         "data_iso": str(target_date), "dia": target_dia_acc,
     }
@@ -303,10 +303,10 @@ async def _get_menu_summary(rid: str) -> str:
             cats.setdefault(i["categoria"], []).append(i)
     lines = []
     for cat, its in cats.items():
-        precos = [i["preco"] for i in its if i["preco"]]
-        faixa = f"R$ {min(precos):.0f}–{max(precos):.0f}" if precos else ""
-        lines.append(f"{cat}: {', '.join(i['nome'] for i in its[:4])}{'...' if len(its)>4 else ''} {faixa}")
-    return "\n".join(lines)
+        lines.append(f"{cat}: {', '.join(i['nome'] for i in its[:4])}{'...' if len(its)>4 else ''}")
+    return ("Índice de itens publicados, sem confirmação de estoque. "
+            "Consulte lookup_menu antes de informar preço, variante ou composição.\n"
+            + "\n".join(lines))
 
 async def create_menu_item(rid: str, data: dict) -> dict:
     async with pool().acquire() as c:
@@ -774,15 +774,42 @@ async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: lis
 async def save_message(
     user_phone: str, rid: str, role: str, content: str,
     media_url: str | None = None, media_type: str | None = None,
+    *, source_message_sid: str | None = None, ctwa_clid: str | None = None,
 ):
+    # Only inbound provider IDs participate in persistence idempotency. Missing
+    # IDs and repeated text with DIFFERENT IDs remain legitimate new messages.
+    source_message_sid = (source_message_sid or "").strip() or None
+    ctwa_clid = (ctwa_clid or "").strip() or None
+    if role != "user":
+        source_message_sid = ctwa_clid = None
     async with pool().acquire() as c:
-        await c.execute(
+        if source_message_sid or ctwa_clid:
+            row = await c.fetchrow("""
+                INSERT INTO conversations
+                  (user_phone,restaurant_id,role,content,media_url,media_type,source_message_sid,ctwa_clid)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                ON CONFLICT (restaurant_id,source_message_sid)
+                  WHERE role='user' AND source_message_sid IS NOT NULL
+                DO NOTHING RETURNING id
+            """, user_phone, rid, role, content, media_url, media_type, source_message_sid, ctwa_clid)
+            return row["id"] if row else None
+        row = await c.fetchrow(
             "INSERT INTO conversations (user_phone,restaurant_id,role,content,media_url,media_type)"
-            " VALUES ($1,$2,$3,$4,$5,$6)",
+            " VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
             user_phone, rid, role, content, media_url, media_type)
+        return row["id"] if row else None
 
-async def get_history(user_phone: str, rid: str, limit: int = 20) -> list[dict]:
+async def get_history(user_phone: str, rid: str, limit: int = 20,
+                      *, exclude_source_message_sid: str | None = None) -> list[dict]:
     async with pool().acquire() as c:
+        if exclude_source_message_sid:
+            rows = await c.fetch("""
+                SELECT role,content FROM conversations
+                WHERE user_phone=$1 AND restaurant_id=$2
+                  AND (role <> 'user' OR source_message_sid IS DISTINCT FROM $4)
+                ORDER BY created_at DESC, id DESC LIMIT $3
+            """, user_phone, rid, limit, exclude_source_message_sid)
+            return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
         rows = await c.fetch("""
             SELECT role,content FROM conversations
             WHERE user_phone=$1 AND restaurant_id=$2
@@ -887,19 +914,33 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
     rest = None
     gerente = None
     async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo)
-            VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
-        hid = row["id"]
+        async with c.transaction():
+            await _lock_handoff_contact(c, rid, user_phone)
+            existing = await c.fetchrow("""
+                SELECT id FROM handoff_sessions WHERE restaurant_id=$1 AND user_phone=$2
+                  AND status IN ('aguardando','em_atendimento') ORDER BY id DESC LIMIT 1
+            """, rid, user_phone)
+            if existing:
+                return existing["id"]
+            initial = {"discord": {"state": "pending"}, "whatsapp": {
+                "state": "pending" if escalacao_clinica else "skipped",
+                "reason": None if escalacao_clinica else "approved_tenant_template_not_configured"}}
+            row = await c.fetchrow("""
+                INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo,notification_status)
+                VALUES ($1,$2,$3,$4::jsonb) RETURNING id""", user_phone, rid, motivo, json.dumps(initial))
+            hid = row["id"]
         # Falhas auxiliares não apagam nem invalidam o handoff já persistido.
         try:
             rest = await c.fetchrow(
                 "SELECT nome, whatsapp_number FROM restaurants WHERE id=$1", rid)
             if escalacao_clinica:
                 gerente = await c.fetchrow(
-                    """SELECT whatsapp FROM team_members
+                    """SELECT whatsapp FROM team_members tm
                        WHERE restaurant_id=$1 AND role='gerente' AND ativo=true
                          AND NULLIF(TRIM(whatsapp), '') IS NOT NULL
+                         AND NOT EXISTS(SELECT 1 FROM restaurants sender
+                           WHERE regexp_replace(sender.whatsapp_number,'[^0-9]','','g')=
+                                 regexp_replace(tm.whatsapp,'[^0-9]','','g'))
                        ORDER BY id LIMIT 1""", rid)
         except Exception as e:
             print(f"[HANDOFF] Dados de notificação indisponíveis hid={hid}: {e!r}")
@@ -907,30 +948,51 @@ async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
     discord_aceitou = False
     try:
         import notifications as notif
-        discord_aceitou = notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
+        discord_aceitou = await asyncio.to_thread(notif.notify_handoff_discord, restaurant_nome, user_phone, motivo)
     except Exception as e:
         print(f"[HANDOFF] Discord falhou (best-effort) hid={hid}: {e!r}")
+    await _record_handoff_notification(hid, rid, "discord", {"state": "accepted" if discord_aceitou else "unconfirmed"})
 
     whatsapp_aceitou = False
     if escalacao_clinica:
         if gerente:
             try:
                 import notifications as notif
-                whatsapp_aceitou = notif.notify_escalacao_gerente(
+                whatsapp_aceitou = await asyncio.to_thread(notif.notify_escalacao_gerente,
                     from_number=(rest["whatsapp_number"] if rest else "") or "",
                     gerente_whatsapp=gerente["whatsapp"],
                     customer_phone=user_phone,
                     motivo=motivo,
                 )
+                await _record_handoff_notification(hid, rid, "whatsapp", vars(whatsapp_aceitou))
             except Exception as e:
                 print(f"[HANDOFF] Escalação clínica falhou (best-effort) hid={hid}: {e!r}")
+                await _record_handoff_notification(hid, rid, "whatsapp", {"state": "unconfirmed", "reason": type(e).__name__})
         else:
             print(f"[HANDOFF] Escalação clínica sem gerente ativo com WhatsApp hid={hid}")
+            await _record_handoff_notification(hid, rid, "whatsapp", {"state": "skipped", "reason": "no_safe_manager_destination"})
         if not whatsapp_aceitou:
             print(f"[HANDOFF] Rota clínica pendente no painel hid={hid}; Discord aceitou={bool(discord_aceitou)}")
     if not discord_aceitou and not whatsapp_aceitou:
         print(f"[HANDOFF] ALERTA: nenhum canal aceitou notificação hid={hid}; atendimento aguardando no painel")
     return hid
+
+
+async def _lock_handoff_contact(connection, rid, phone):
+    await connection.execute("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", json.dumps([rid,phone]))
+
+
+async def _record_handoff_notification(hid, rid, channel, result):
+    # Preserve the handoff even if this auxiliary write fails. Pending means that
+    # acceptance cannot be established; it must not trigger an automatic resend.
+    try:
+        result = {**result, "observed_at": datetime.now(_TZ_SP).isoformat()}
+        async with pool().acquire() as c:
+            await c.execute("""UPDATE handoff_sessions SET notification_status=
+                jsonb_set(notification_status,ARRAY[$3]::text[],$4::jsonb,true)
+                WHERE id=$1 AND restaurant_id=$2""", hid,rid,channel,json.dumps(result))
+    except Exception as error:
+        print(f"[HANDOFF] Evidência de canal pendente hid={hid} channel={channel}: {type(error).__name__}")
 
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
     q = """SELECT hs.*, ct.nome, ct.sobrenome
@@ -953,13 +1015,50 @@ async def get_handoff_by_id(hid: int) -> Optional[dict]:
     return dict(row) if row else None
 
 async def update_handoff_status(hid: int, status: str, atendente: Optional[str]=None) -> bool:
-    resolved = "NOW()" if status == "resolvido" else "NULL"
+    if status not in {"aguardando","em_atendimento","resolvido"}:
+        return False
     async with pool().acquire() as c:
-        r = await c.execute(f"""
-            UPDATE handoff_sessions
-            SET status=$2, atendente_nome=$3, resolved_at={resolved}
-            WHERE id=$1""", hid, status, atendente)
+        async with c.transaction():
+            session = await c.fetchrow("SELECT restaurant_id,user_phone FROM handoff_sessions WHERE id=$1",hid)
+            if not session: return False
+            await _lock_handoff_contact(c,session["restaurant_id"],session["user_phone"])
+            if status == "resolvido":
+                current_status = await c.fetchval("SELECT status FROM handoff_sessions WHERE id=$1",hid)
+                if current_status == "resolvido":
+                    # A repeated/stale resolve must not close a NEW handoff that
+                    # opened later for this phone after the target was resolved.
+                    return True
+                # Historical duplicate open rows must not keep the same chat paused.
+                r = await c.execute("""UPDATE handoff_sessions SET status='resolvido',
+                    atendente_nome=COALESCE($4,atendente_nome),resolved_at=COALESCE(resolved_at,NOW())
+                    WHERE restaurant_id=$2 AND user_phone=$3
+                      AND (id=$1 OR status IN ('aguardando','em_atendimento'))
+                """,hid,session["restaurant_id"],session["user_phone"],atendente)
+            else:
+                r = await c.execute("""UPDATE handoff_sessions SET status=$2,
+                    atendente_nome=COALESCE($3,atendente_nome),resolved_at=NULL,
+                    assumed_at=CASE WHEN $2='em_atendimento' THEN COALESCE(assumed_at,NOW()) ELSE assumed_at END
+                    WHERE id=$1""",hid,status,atendente)
     return int(r.split()[-1]) > 0
+
+
+async def record_human_handoff_reply(hid, atendente, message, provider_message_sid):
+    import re
+    if not re.fullmatch(r"SM[0-9a-fA-F]{32}", provider_message_sid or ""):
+        raise ValueError("Resposta humana exige SID válido")
+    async with pool().acquire() as c:
+        async with c.transaction():
+            session = await c.fetchrow("SELECT restaurant_id,user_phone FROM handoff_sessions WHERE id=$1",hid)
+            if not session: raise ValueError("Handoff inexistente")
+            rid,phone=session["restaurant_id"],session["user_phone"]
+            await _lock_handoff_contact(c,rid,phone)
+            await c.execute("""INSERT INTO conversations(restaurant_id,user_phone,role,content,provider_message_sid)
+                VALUES($1,$2,'assistant',$3,$4) ON CONFLICT(restaurant_id,provider_message_sid)
+                WHERE provider_message_sid IS NOT NULL DO NOTHING""",rid,phone,f"[{atendente}] {message}",provider_message_sid)
+            await c.execute("""UPDATE handoff_sessions SET status='em_atendimento',atendente_nome=$2,
+                assumed_at=COALESCE(assumed_at,NOW()),first_human_response_at=COALESCE(first_human_response_at,NOW()),
+                last_reply_message_sid=$3,resolved_at=NULL WHERE id=$1""",hid,atendente,provider_message_sid)
+    return True
 
 async def is_in_handoff(user_phone: str, rid: str) -> bool:
     async with pool().acquire() as c:
@@ -989,6 +1088,8 @@ async def get_handoff_sla_stats(restaurant_id: str) -> dict:
                     WHERE resolved_at IS NOT NULL
                       AND resolved_at - created_at <= INTERVAL '2 hours'
                 )                                                                       AS dentro_sla
+                ,ROUND(AVG(EXTRACT(EPOCH FROM (first_human_response_at-created_at))/60)
+                       FILTER(WHERE first_human_response_at IS NOT NULL),1) AS primeira_resposta_minutos
             FROM handoff_sessions
             WHERE restaurant_id = $1
         """, restaurant_id)
@@ -1017,6 +1118,10 @@ async def get_handoff_sla_stats(restaurant_id: str) -> dict:
         "tma_minutos": tma,
         "taxa_sla_pct": taxa_sla,
         "resolvidos_total": resolvidos,
+        "tempo_primeira_resposta_minutos": float(stats["primeira_resposta_minutos"]) if stats["primeira_resposta_minutos"] is not None else None,
+        "tma_definicao": "Legado: tempo até resolução; não é tempo até primeira resposta.",
+        "limiar_legado_minutos": 120,
+        "sla_validado": False,
         "handoffs_vencidos": [
             {
                 "id": r["id"],
@@ -1042,11 +1147,15 @@ async def get_on_duty_team(rid: str) -> list[dict]:
     return await get_team(rid)
 
 async def create_team_member(rid: str, data: dict) -> dict:
+    from notifications import whatsapp_address
+    number = whatsapp_address(data["whatsapp"]).removeprefix("whatsapp:")
     async with pool().acquire() as c:
+        if await c.fetchval("SELECT EXISTS(SELECT 1 FROM restaurants WHERE regexp_replace(whatsapp_number,'[^0-9]','','g')=$1)",number.lstrip("+")):
+            raise ValueError("Número de operação não pode ser destino de atendimento humano")
         row = await c.fetchrow("""
             INSERT INTO team_members (restaurant_id,nome,whatsapp,role)
             VALUES ($1,$2,$3,$4) RETURNING id""",
-            rid, data["nome"], data["whatsapp"], data.get("role","atendente"))
+            rid, data["nome"], number, data.get("role","atendente"))
     return {"id": row["id"]}
 
 
@@ -1122,13 +1231,23 @@ CONTACT_UPDATABLE = {
     "nome", "sobrenome", "email", "data_nascimento", "endereco",
     "tipo_aparelho", "canal_entrada", "ocasiao", "restricoes_alimentares",
     "ticket_medio", "ultima_visita", "tags", "opt_in_marketing",
-    "estagio_kanban", "notas", "frequencia_visitas",
+    "estagio_kanban", "motivo_perda", "motivo_perda_detalhe", "notas", "frequencia_visitas",
     "lead_score", "lead_score_at",
 }
 
-KANBAN_ESTAGIOS = (
-    "captacao", "qualificado", "proposta", "fechado", "perdido",
-)
+from crm_stages import KANBAN_ESTAGIOS, MOTIVOS_PERDA, validate_stage_payload
+
+
+async def _crm_audit_context(connection, operator_id: str | None, source: str) -> None:
+    """Transaction-local context; never carry an operator across pooled requests."""
+    await connection.execute(
+        "SELECT set_config('serena.operator_id', $1, true), set_config('serena.change_source', $2, true)",
+        str(operator_id) if operator_id else "", source)
+
+
+def _validate_contact_stage_fields(data: dict) -> None:
+    if any(data.get(key) is not None for key in ("estagio_kanban", "motivo_perda", "motivo_perda_detalhe")):
+        validate_stage_payload(data.get("estagio_kanban"), data.get("motivo_perda"), data.get("motivo_perda_detalhe"))
 
 
 async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id: Optional[str] = None) -> None:
@@ -1155,11 +1274,12 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
             )
 
 
-async def upsert_contact(data: dict, restaurant_id: str | None = None) -> dict:
+async def upsert_contact(data: dict, restaurant_id: str | None = None, *, operator_id: str | None = None) -> dict:
     """Upsert scoped to one business, never all records of a shared phone."""
     rid = restaurant_id or data.get("restaurant_id")
     if not rid:
         raise ValueError("restaurant_id obrigatório para o contato")
+    _validate_contact_stage_fields(data)
     celular = data["celular"]
     fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
     cols = ["celular", "restaurant_id"] + list(fields)
@@ -1167,9 +1287,11 @@ async def upsert_contact(data: dict, restaurant_id: str | None = None) -> dict:
     placeholders = ",".join(f"${i+1}" for i in range(len(cols)))
     update = ",".join(f"{k}=EXCLUDED.{k}" for k in fields) or "celular=EXCLUDED.celular"
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            f"INSERT INTO contacts ({','.join(cols)}) VALUES ({placeholders}) "
-            f"ON CONFLICT (celular, restaurant_id) DO UPDATE SET {update} RETURNING *", *values)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                f"INSERT INTO contacts ({','.join(cols)}) VALUES ({placeholders}) "
+                f"ON CONFLICT (celular, restaurant_id) DO UPDATE SET {update} RETURNING *", *values)
     return dict(row)
 
 
@@ -1191,7 +1313,7 @@ async def list_contacts(
         conditions.append(f"tier=${len(params)}")
     if estagio:
         params.append(estagio)
-        conditions.append(f"estagio_kanban=${len(params)}")
+        conditions.append(f"CASE WHEN c.estagio_kanban='Novo Lead' THEN 'captacao' ELSE c.estagio_kanban END=${len(params)}")
     if ocasiao:
         params.append(ocasiao)
         conditions.append(f"${len(params)} = ANY(ocasiao)")
@@ -1228,26 +1350,65 @@ async def get_contact(celular: str, restaurant_id: str | None = None) -> Optiona
     return dict(row) if row else None
 
 
-async def update_contact(celular: str, data: dict, restaurant_id: str | None = None) -> Optional[dict]:
-    fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
+async def update_contact(celular: str, data: dict, restaurant_id: str | None = None, *, operator_id: str | None = None) -> Optional[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    _validate_contact_stage_fields(data)
+    fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE
+              and (v is not None or k == "motivo_perda_detalhe")}
     if not fields:
         return await get_contact(celular, restaurant_id)
     set_clause = ",".join(f"{k}=${i+2}" for i, k in enumerate(fields))
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            f"UPDATE contacts SET {set_clause} WHERE celular=$1 AND restaurant_id=${len(fields)+2} RETURNING *",
-            celular, *fields.values(), restaurant_id)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                f"UPDATE contacts SET {set_clause} WHERE celular=$1 AND restaurant_id=${len(fields)+2} RETURNING *",
+                celular, *fields.values(), restaurant_id)
     return dict(row) if row else None
 
 
-async def move_contact_kanban(celular: str, estagio: str, restaurant_id: str | None = None) -> Optional[dict]:
-    if estagio not in KANBAN_ESTAGIOS:
-        raise ValueError(f"Estágio inválido: {estagio}")
+async def move_contact_kanban(
+    celular: str, estagio: str, restaurant_id: str | None = None, *,
+    motivo_perda: str | None = None, motivo_perda_detalhe: str | None = None,
+    operator_id: str | None = None,
+) -> Optional[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    reason, detail = validate_stage_payload(estagio, motivo_perda, motivo_perda_detalhe)
     async with pool().acquire() as c:
-        row = await c.fetchrow(
-            "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1 AND restaurant_id=$3 RETURNING *",
-            celular, estagio, restaurant_id)
+        async with c.transaction():
+            await _crm_audit_context(c, operator_id, "crm_api" if operator_id else "backend")
+            row = await c.fetchrow(
+                """UPDATE contacts SET estagio_kanban=$2, motivo_perda=$4, motivo_perda_detalhe=$5
+                   WHERE celular=$1 AND restaurant_id=$3 RETURNING *""",
+                celular, estagio, restaurant_id, reason, detail)
     return dict(row) if row else None
+
+
+async def get_contact_stage_history(celular: str, restaurant_id: str, limit: int = 100) -> list[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            """SELECT e.* FROM contact_stage_events e
+               JOIN contacts c ON c.id=e.contact_id AND c.restaurant_id=e.restaurant_id
+               WHERE c.celular=$1 AND e.restaurant_id=$2
+               ORDER BY e.occurred_at DESC, e.id DESC LIMIT $3""",
+            celular, restaurant_id, min(max(limit, 1), 500))
+    return [dict(row) for row in rows]
+
+
+async def get_reserva_status_history(reserva_id: str, restaurant_id: str, limit: int = 100) -> list[dict]:
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para a reserva")
+    async with pool().acquire() as c:
+        rows = await c.fetch(
+            """SELECT * FROM reservation_status_events
+               WHERE reserva_id=$1 AND restaurant_id=$2
+               ORDER BY occurred_at DESC, id DESC LIMIT $3""",
+            reserva_id, restaurant_id, min(max(limit, 1), 500))
+    return [dict(row) for row in rows]
 
 
 async def get_funil_stats(restaurant_id: str | None = None) -> dict:
@@ -1274,28 +1435,36 @@ async def get_funil_stats(restaurant_id: str | None = None) -> dict:
     }
 
 
-async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
+async def get_nurture_leads(days_inactive: int = 3, restaurant_id: str | None = None) -> list[dict]:
     """Leads MORNOS sem interação há N+ dias — candidatos ao nurture automático."""
+    if not restaurant_id:
+        raise ValueError("Unidade obrigatória para nurture")
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT c.celular, c.nome, c.lead_score, c.atualizado_em, c.notas,
                    r.restaurant_id
             FROM contacts c
-            JOIN (
-                SELECT DISTINCT user_phone, restaurant_id
-                FROM conversations
-                WHERE created_at >= NOW() - INTERVAL '90 days'
-            ) r ON r.user_phone = c.celular AND r.restaurant_id = c.restaurant_id
-            WHERE c.lead_score = 'morno'
-              AND c.atualizado_em < NOW() - ($1 || ' days')::INTERVAL
+            JOIN LATERAL (
+                SELECT restaurant_id,created_at FROM conversations cv
+                WHERE cv.restaurant_id=c.restaurant_id AND cv.user_phone=c.celular AND cv.role='user'
+                ORDER BY created_at DESC,id DESC LIMIT 1
+            ) r ON true
+            WHERE c.restaurant_id=$2 AND c.lead_score = 'morno'
+              AND c.opt_in_marketing IS TRUE
+              AND (SELECT e.granted FROM outreach_consent_events e
+                   WHERE e.restaurant_id=c.restaurant_id AND e.customer_phone=c.celular
+                   ORDER BY e.id DESC LIMIT 1) IS TRUE
+              AND r.created_at < NOW() - ($1 || ' days')::INTERVAL
+              AND r.created_at >= NOW() - INTERVAL '90 days'
               AND NOT EXISTS (
                 SELECT 1 FROM reservas rv
                 WHERE rv.cliente_phone = c.celular
+                  AND rv.restaurant_id=c.restaurant_id
                   AND rv.status IN ('pendente','confirmada')
               )
-            ORDER BY c.atualizado_em ASC
+            ORDER BY r.created_at ASC
             LIMIT 100
-        """, str(days_inactive))
+        """, str(days_inactive), restaurant_id)
     return [dict(r) for r in rows]
 
 
@@ -1336,8 +1505,8 @@ async def get_contact_conversations(celular: str, limit: int = 100, restaurant_i
 
 
 async def mark_inactive_contacts(threshold_days: int = 45) -> int:
-    """Move para 'Inativo' contatos sem visita há N+ dias.
-    Chamar via cron ou endpoint. Retorna quantos foram afetados."""
+    """Deprecated compatibility hook: inactivity never proves a lost opportunity.
+    The matching SQL function returns zero without changing contacts."""
     async with pool().acquire() as c:
         affected = await c.fetchval(
             "SELECT contacts_mark_inactive($1)", threshold_days)
@@ -1562,7 +1731,17 @@ async def record_serena_metric(metric: dict) -> Optional[str]:
         "serena_admitiu_nao_saber", "enviou_link_tagme", "intencao_detectada",
         "duracao_segundos", "num_mensagens", "prompt_versao_id",
     ]
+    # Add only supplied instrumentation fields, preserving legacy callers.
+    cols += [key for key in (
+        "source_message_sid", "modelo_observado", "usage_json", "tokens_cache_creation",
+        "tokens_cache_read", "tokens_cache_write_5m", "tokens_cache_write_1h",
+        "custo_input_usd", "custo_output_usd", "custo_cache_write_5m_usd",
+        "custo_cache_write_1h_usd", "custo_cache_read_usd", "custo_total_usd",
+        "tarifa_versao", "custo_status",
+    ) if key in metric]
     payload = {k: metric.get(k) for k in cols}
+    if "usage_json" in payload:
+        payload["usage_json"] = json.dumps(payload["usage_json"], ensure_ascii=False)
     fields = ",".join(payload.keys())
     placeholders = ",".join(f"${i+1}" for i in range(len(payload)))
     async with pool().acquire() as c:
@@ -1912,10 +2091,7 @@ async def update_handoff_kanban(hid: int, stage: str) -> bool:
     valid = {"aguardando", "em_atendimento", "resolvido"}
     if stage not in valid:
         return False
-    async with pool().acquire() as c:
-        r = await c.execute(
-            "UPDATE handoff_sessions SET status=$1 WHERE id=$2", stage, hid)
-    return int(r.split()[-1]) > 0
+    return await update_handoff_status(hid,stage)
 
 
 # ── Agenda própria — Serena 2.0 ───────────────────────────────
@@ -1931,61 +2107,20 @@ async def get_turnos(restaurant_id: str, dia_semana: int) -> list[dict]:
 
 
 async def check_disponibilidade(restaurant_id: str, data: str, turno_id: str, posicoes: int) -> dict:
-    from datetime import date as _date
-    import json
-    try:
-        data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
-    except ValueError:
-        data_obj = _date.today()
+    from reservation_service import check_slot, BookingError
     async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            SELECT verificar_disponibilidade($1, $2::DATE, $3::UUID, $4) as resultado
-        """, restaurant_id, data_obj, turno_id, posicoes)
-    res = row["resultado"]
-    if isinstance(res, str):
         try:
-            return json.loads(res)
-        except Exception:
-            pass
-    return res
+            result = await check_slot(c, restaurant_id, data, turno_id, posicoes)
+            return {"disponivel": True, "posicoes_disponiveis": result["remaining"]}
+        except BookingError as exc:
+            return {"disponivel": False, "motivo": exc.message, "code": exc.code, "http_status": exc.status}
 
 
-
-async def criar_reserva(data: dict) -> dict:
-    from datetime import date as _date, time as _time
-    raw_data = data["data"]
-    try:
-        data_obj = _date.fromisoformat(raw_data) if isinstance(raw_data, str) else raw_data
-    except ValueError:
-        data_obj = _date.today()
-
-    raw_time = data["hora_inicio"]
-    if isinstance(raw_time, str):
-        try:
-            parts = [int(x) for x in raw_time.split(":")]
-            time_obj = _time(hour=parts[0], minute=parts[1], second=parts[2] if len(parts) > 2 else 0)
-        except Exception:
-            time_obj = raw_time
-    else:
-        time_obj = raw_time
-
-    async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            INSERT INTO reservas (
-                restaurant_id, turno_id, evento_id,
-                cliente_phone, cliente_nome, cliente_email,
-                data, hora_inicio, posicoes, canal, observacoes,
-                pagamento_status, pagamento_valor
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-            RETURNING *
-        """,
-        data["restaurant_id"], data.get("turno_id"), data.get("evento_id"),
-        data["cliente_phone"], data["cliente_nome"], data.get("cliente_email"),
-        data_obj, time_obj, data["posicoes"],
-        data.get("canal", "whatsapp"), data.get("observacoes"),
-        data.get("pagamento_status", "nao_requerido"), data.get("pagamento_valor"))
-    return dict(row)
-
+async def criar_reserva(data: dict, *, allow_legacy: bool = False) -> dict:
+    from reservation_service import create_booking, create_manual_booking, is_legacy_booking
+    if allow_legacy and is_legacy_booking(data):
+        return await create_manual_booking(pool(), data)
+    return await create_booking(pool(), data)
 
 
 async def get_reserva(reserva_id: str) -> Optional[dict]:
@@ -2050,17 +2185,12 @@ async def cancelar_reserva(reserva_id: str, restaurant_id: str) -> bool:
 
 _STATUS_RESERVA_VALIDOS = {"no_show", "realizada", "confirmada", "cancelada", "pendente"}
 
-async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: str) -> Optional[dict]:
+async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: str, *, operator_id: str | None = None) -> Optional[dict]:
     """Atualiza status de uma reserva. Retorna a reserva atualizada ou None se não encontrada."""
     if status not in _STATUS_RESERVA_VALIDOS:
         raise ValueError(f"Status inválido: {status}. Válidos: {_STATUS_RESERVA_VALIDOS}")
-    async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            UPDATE reservas SET status = $3
-            WHERE id = $1 AND restaurant_id = $2
-            RETURNING *
-        """, reserva_id, restaurant_id, status)
-    return dict(row) if row else None
+    from reservation_service import update_booking_status
+    return await update_booking_status(pool(), reserva_id, restaurant_id, status, operator_id=operator_id)
 
 
 async def listar_reservas_semana(restaurant_id: str, data_inicio: str) -> list[dict]:
@@ -2138,7 +2268,7 @@ async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias:
                AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT
                AND t.ativo = true
             LEFT JOIN reservas r
-                ON r.turno_id = t.id AND r.data = d.data::date
+                ON r.turno_id = t.id AND r.restaurant_id = t.restaurant_id AND r.data = d.data::date
             LEFT JOIN agenda_bloqueios b
                 ON b.restaurant_id = $1
                AND b.data_inicio::date <= d.data::date
@@ -2405,7 +2535,7 @@ async def get_os_para_regua(restaurant_id: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
+async def marcar_regua_enviada(os_id: str, etapa: str, *, restaurant_id: str | None = None, provider_message_sid: str | None = None) -> None:
     """Marca timestamp de envio da etapa da régua. etapa: d1|d3|d7|d30"""
     col_map = {
         "d1":  "regua_d1_enviado_em",
@@ -2416,14 +2546,18 @@ async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
     col = col_map.get(etapa)
     if not col:
         raise ValueError(f"Etapa inválida: {etapa}")
+    if not restaurant_id or not provider_message_sid:
+        raise ValueError("Envio exige unidade e SID confirmado na outbox")
     async with pool().acquire() as c:
         await c.execute(
-            f"UPDATE ordens_servico SET {col} = NOW() WHERE id = $1",
-            os_id
+            f"UPDATE ordens_servico SET {col} = COALESCE({col},NOW()) WHERE id::text = $1 AND restaurant_id=$2 "
+            "AND EXISTS(SELECT 1 FROM outreach_outbox o WHERE o.restaurant_id=$2 AND o.object_type='ordem_servico' "
+            "AND o.object_id=$1 AND o.stage=$3 AND o.status='sent' AND o.provider_message_sid=$4)",
+            str(os_id), restaurant_id, etapa, provider_message_sid
         )
 
 
-async def _recalcular_ltv_contato(c, celular: str) -> None:
+async def _recalcular_ltv_contato(c, celular: str, restaurant_id: str) -> None:
     """Recalcula ltv_total e total_eventos de um único contato (conexão reutilizada).
 
     LTV = SUM(reservas pagas) + SUM(OS realizadas)
@@ -2436,6 +2570,7 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT SUM(r.pagamento_valor)
                    FROM reservas r
                    WHERE r.cliente_phone = $1
+                     AND r.restaurant_id = $2
                      AND r.pagamento_status = 'pago'
                ), 0)
                +
@@ -2443,6 +2578,7 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT SUM(o.valor_total)
                    FROM ordens_servico o
                    WHERE o.cliente_phone = $1
+                     AND o.restaurant_id = $2
                      AND o.status = 'realizado'
                ), 0)
            ),
@@ -2451,18 +2587,20 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT COUNT(*)
                    FROM reservas r
                    WHERE r.cliente_phone = $1
-                     AND r.status IN ('confirmada', 'realizada')
+                     AND r.restaurant_id = $2
+                     AND r.status IN ('confirmada', 'realizada', 'concluida')
                ), 0)
                +
                COALESCE((
                    SELECT COUNT(*)
                    FROM ordens_servico o
                    WHERE o.cliente_phone = $1
+                     AND o.restaurant_id = $2
                      AND o.status = 'realizado'
                ), 0)
            )
-           WHERE celular = $1""",
-        celular
+           WHERE celular = $1 AND restaurant_id = $2""",
+        celular, restaurant_id
     )
 
 
@@ -2475,7 +2613,7 @@ async def recalcular_ltv(restaurant_id: str) -> dict:
         # Contatos que interagiram com o restaurante via reservas OU OS
         rows = await c.fetch(
             """SELECT DISTINCT celular FROM contacts
-               WHERE celular IN (
+               WHERE restaurant_id = $1 AND celular IN (
                    SELECT DISTINCT cliente_phone FROM reservas   WHERE restaurant_id = $1
                    UNION
                    SELECT DISTINCT cliente_phone FROM ordens_servico WHERE restaurant_id = $1
@@ -2484,30 +2622,31 @@ async def recalcular_ltv(restaurant_id: str) -> dict:
         )
         contatos = [r["celular"] for r in rows]
         for celular in contatos:
-            await _recalcular_ltv_contato(c, celular)
+            await _recalcular_ltv_contato(c, celular, restaurant_id)
 
         total = await c.fetchval(
             """SELECT COALESCE(SUM(ltv_total), 0)
                FROM contacts
-               WHERE celular = ANY($1::text[])""",
-            contatos
+               WHERE celular = ANY($1::text[]) AND restaurant_id = $2""",
+            contatos, restaurant_id
         )
     return {"contatos_atualizados": len(contatos), "ltv_total_brl": float(total or 0)}
 
 
-async def registrar_nps(os_id: str, nota: int) -> None:
+async def registrar_nps(os_id: str, nota: int, restaurant_id: str) -> bool:
     """Salva nota NPS recebida via WhatsApp."""
     async with pool().acquire() as c:
-        await c.execute(
+        row = await c.fetchrow(
             """UPDATE ordens_servico
                SET nps_score = $1, nps_respondido_em = NOW()
-               WHERE id = $2""",
-            nota, os_id
+               WHERE id = $2 AND restaurant_id = $3 AND nps_score IS NULL
+               RETURNING cliente_phone""",
+            nota, os_id, restaurant_id
         )
         # Recalcula LTV combinado (reservas + OS) para o cliente da OS
-        row = await c.fetchrow("SELECT cliente_phone FROM ordens_servico WHERE id = $1", os_id)
         if row and row["cliente_phone"]:
-            await _recalcular_ltv_contato(c, row["cliente_phone"])
+            await _recalcular_ltv_contato(c, row["cliente_phone"], restaurant_id)
+        return row is not None
 
 
 async def marcar_os_realizada(os_id: str) -> None:

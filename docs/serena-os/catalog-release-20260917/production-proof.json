@@ -1,0 +1,26 @@
+[
+  {
+    "restaurant_id": "meet_and_eat",
+    "inserted": 276,
+    "unchanged": 0,
+    "source_rows": 276,
+    "verified_total": 276,
+    "bundle_sha256": "a01c8183ea9d8b881563ab95e995a8f2f413da2836e1360e1cbbdd3f9c31b2a8"
+  },
+  {
+    "restaurant_id": "madonna_cucina",
+    "inserted": 253,
+    "unchanged": 0,
+    "source_rows": 253,
+    "verified_total": 253,
+    "bundle_sha256": "ef4b16453f3ae8837dc61889a23ddfe7332d845ae40a311d25aef485d25443cb"
+  },
+  {
+    "restaurant_id": "freneze",
+    "inserted": 210,
+    "unchanged": 0,
+    "source_rows": 210,
+    "verified_total": 210,
+    "bundle_sha256": "d271f50ce15264e9a15113e4bf3b1a78e13013887add7639a52cdd6932d2e948"
+  }
+]
