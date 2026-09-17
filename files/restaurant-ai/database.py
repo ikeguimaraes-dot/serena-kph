@@ -318,8 +318,15 @@ async def create_menu_item(rid: str, data: dict) -> dict:
     return {"id": row["id"]}
 
 async def update_menu_item(item_id: int, data: dict) -> bool:
-    data["updated_at"] = datetime.now(_TZ_SP)
+    data = {**data, "updated_at": datetime.now(_TZ_SP)}
     fields = [f"{k}=${i+2}" for i,k in enumerate(data.keys())]
+    if "disponivel" in data:
+        position = list(data).index("disponivel") + 2
+        # An explicit operator decision overrides the imported listing state,
+        # while preserving option prices, source evidence and other metadata.
+        fields.append("catalog_metadata=CASE WHEN jsonb_typeof(catalog_metadata)='object' "
+                      f"THEN jsonb_set(catalog_metadata,'{{listed}}',to_jsonb(${position}::boolean),true) "
+                      "ELSE catalog_metadata END")
     async with pool().acquire() as c:
         r = await c.execute(
             f"UPDATE menu_items SET {','.join(fields)} WHERE id=$1",

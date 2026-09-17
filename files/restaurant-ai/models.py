@@ -1,6 +1,6 @@
 """Modelos Pydantic — contratos da API REST."""
 
-from pydantic import BaseModel, field_validator, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 from datetime import datetime
 
@@ -45,7 +45,7 @@ class MenuItemCreate(BaseModel):
     categoria: str
     nome: str
     descricao: str = ""
-    preco: Optional[float] = None
+    preco: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     disponivel: bool = True
     ordem: int = 0
 
@@ -53,7 +53,7 @@ class MenuItemUpdate(BaseModel):
     categoria: Optional[str] = None
     nome: Optional[str] = None
     descricao: Optional[str] = None
-    preco: Optional[float] = None
+    preco: Optional[float] = Field(None, ge=0, allow_inf_nan=False)
     disponivel: Optional[bool] = None
     ordem: Optional[int] = None
 
