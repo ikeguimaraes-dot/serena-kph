@@ -246,7 +246,7 @@ async def create_booking(pool, data):
 
 def is_legacy_booking(data):
     return (not data.get('turno_id') or bool(data.get('evento_id')) or
-            data.get('pagamento_status', 'nao_requerido') != 'nao_requerido' or bool(data.get('pagamento_valor')))
+            data.get('pagamento_status', 'nao_requerido') != 'nao_requerido' or data.get('pagamento_valor') is not None)
 
 
 async def capacity_locks(c, rid, day, slot_id=None, event_id=None):

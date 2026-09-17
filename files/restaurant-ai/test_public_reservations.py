@@ -112,3 +112,10 @@ class AvailabilityToolContractTests(unittest.IsolatedAsyncioTestCase):
             self.assertIn('não prometa espaço, vagas, mesa ou reserva', reply)
             self.assertIn('não diga que está lotado', reply)
             self.assertIn('62ffd74ddaf31500126b3e29', reply)
+
+
+class ManualCompatibilitySelectorTests(unittest.TestCase):
+    def test_explicit_zero_payment_is_preserved_on_private_path(self):
+        from reservation_service import is_legacy_booking
+        self.assertTrue(is_legacy_booking({'turno_id': 'configured', 'pagamento_valor': 0}))
+        self.assertFalse(is_legacy_booking({'turno_id': 'configured', 'pagamento_status':'nao_requerido'}))
