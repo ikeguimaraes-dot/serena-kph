@@ -1,0 +1,14 @@
+{
+  "source_url": "https://freneze.tagme.menu/menu/freneze",
+  "requested_at_utc": "2026-09-17T04:02:46.836236+00:00",
+  "method": "GET",
+  "authorization_used": false,
+  "request_cookies_used": false,
+  "redirected_url": "https://freneze.tagme.menu/menu/freneze",
+  "catalog_extracted": false,
+  "status": 403,
+  "reason": "Forbidden",
+  "content_type": "text/html",
+  "response_bytes": 1031,
+  "response_sha256": "6b6aa9420008b7d13021d26fbe4dea61975cc9e0e910f0df508b27a0a09675c3"
+}

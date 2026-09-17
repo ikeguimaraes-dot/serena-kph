@@ -1,0 +1,74 @@
+{
+  "note": "Trechos públicos lidos como texto; código remoto não executado. Preço BRL formatado sem divisão por 100 no componente público. Nenhum token ou cookie usado.",
+  "sources": [
+    {
+      "url": "https://freneze.tagme.menu/static/js/main.41e76d6a.js",
+      "captured_at_utc": "2026-09-17T04:06:08.465866+00:00",
+      "status": 200,
+      "bytes": 1442795,
+      "sha256": "a5087813ebb1e70124a5487403aba6bd9c74f702bb281d499ea52d993ec857b9",
+      "excerpts": [
+        {
+          "meaning": "formatador_BRL",
+          "offset": 419596,
+          "snippet": "const o=function(e){let t=!(arguments.length>1&&void 0!==arguments[1])||arguments[1],n=!(arguments.length>2&&void 0!==arguments[2])||arguments[2];const r=e%1!==0;return new Intl.NumberFormat(\"pt-BR\",{style:n?\"currency\":\"decimal\",currency:\"BRL\",minimumFractionDigits:t||r?2:0,maximumFractionDigits:t||r?2:0}).format(e)},a=function(e){let t=!(arguments.length>1&&void 0!==arguments[1])||arguments[1];if(!e)return\"\";const n=e.toString();return t&&n.leng"
+        },
+        {
+          "meaning": "rota_produtos",
+          "offset": 410820,
+          "snippet": "async products(e){try{const t=e.store_id,n=e.order_type,r=e.catalog_type,o=new URLSearchParams({store_id:String(t),order_type:String(n)});r&&o.append(\"catalog_type\",r);return(await this.baseService.http.get(\"stores/products?\".concat(o.toString()))).data}catch(t){throw console.error(\"Erro products:\",t),t}}async tables(e){try{const t={store"
+        },
+        {
+          "meaning": "rota_detalhes",
+          "offset": 401271,
+          "snippet": "async stepsAndComplements(e){try{return(await this.baseService.http.get(\"products/composite/steps?store_id=\".concat(e.store_id,\"&product_id=\").concat(e.product_id,\"&order_type=\").concat(e.order_type))).data}catch(t){throw console.error(t),t}}async guestToken(e){try{return(await this.ApiBaseService.http.post(\""
+        },
+        {
+          "meaning": "base_api",
+          "offset": 399952,
+          "snippet": "getApiBaseUrl(){return this.orderType===o.V8?\"https://pdv.shopfood.io/v2\":\"https://api.shopfood.io/v2\"}async refreshToken(e){try{var t,n;const "
+        },
+        {
+          "meaning": "mapa_order_type",
+          "offset": 416902,
+          "snippet": "u={delivery:a.JL,takeaway:a.oP,dine_in:a.f$,scheduling:a.Tt,store_counter:a.dL,menu:a.ss,default:null},c={[a.JL]:a.zD,[a.oP]:a.YJ,[a.f$]:a.Te,[a.Tt]:a.Z7,["
+        },
+        {
+          "meaning": "constantes_order_type",
+          "offset": 418757,
+          "snippet": "const a=1,i=2,s=3,l=4,u=5,c=u,d=\"delivery\",p=\"takeaway\",h=\"dine_in\",f=\"scheduling\",m=\"store_counter\",g=\"menu\";let v=\"Delivery\",_=\""
+        }
+      ]
+    },
+    {
+      "url": "https://freneze.tagme.menu/static/js/957.93538b6d.chunk.js",
+      "captured_at_utc": "2026-09-17T04:06:08.606183+00:00",
+      "status": 200,
+      "bytes": 80412,
+      "sha256": "daefbe854e0eb7e0f6122af22bd046636153b4bbf9e94f103ed169c9ee1d18f4",
+      "excerpts": [
+        {
+          "meaning": "chamada_catalogo",
+          "offset": 76859,
+          "snippet": "t={store_id:A.id,order_type:Number(_(N)),catalog_type:N},s=await e.products(t);(null===s||void 0===s"
+        },
+        {
+          "meaning": "exibicao_preco",
+          "offset": 281,
+          "snippet": "const x=(0,a.memo)((e=>{let{product:t,showCents:s=!1,breakLine:l=!0,textFromPriceMuted:a=!0,classNameFromPriceText:n,className:i}=e;const{t:r}=(0,u.Bd)();return(0,o.by)(t)?(0,m.jsx)(m.Fragment,{children:t.type===d.bB?(0,m.jsxs)(\"span\",{className:\"inline leading-4 \".concat(i),children:[(void 0===t.display_default_price||!0===t.display_default_price)&&(0,m.jsxs)(m.Fragment,{children:[(0,m.jsxs)(\"span\",{className:n,children:[r(\"products.price_from_label\"),\" \"]}),l?(0,m.jsx)(\"br\",{}):\"\"]}),(0,c.vv)(t.default_price,s)]}):(0,m.jsxs)(\"span\",{className:\"flex leading-4 \".concat(l?\"flex-col\":\"gap-1.5\",\" \").concat(i),children:[parseFloat(String(t.from_price))>0&&(0,m.jsxs)(\"span\",{className:\"text-[0.85em] leading-4 \".concat(a?\"text-gray-400\":\"\"),children:[(0,m.jsx)(\"span\",{className:\"font-regular line-through\",children:(0,c.vv)(t.from_price,s)}),\" \"]}),(0,m.jsx)(\"span\",{className:\"font-medium \",children:(0,c.vv)(t.price,s)})]})}):null}));x.displayName=\"ProductPrice\";const p=x;var g=s(6213),f=s.n(g),h=s(397),j=s(8655),v=s(7412),y=s(2055),w=s(6854),b=s(8959);const N=e=>{let{product:t,outline:s=!1,className:l}=e;const{t:a}=(0,u.Bd)();return t&&(0,o.tp)(t)?(0,m.jsx)(\"div\",{className:\"flex items-c"
+        }
+      ]
+    },
+    {
+      "url": "https://api.shopfood.io/v2/stores/freneze/info",
+      "captured_at_utc": "2026-09-17T04:06:09.380786+00:00",
+      "status": 200,
+      "response_sha256": "0ff24abdfa354dc82a8f57853976c4993541a5493447aab538a40f379b10a54c",
+      "selected_public_identity": {
+        "id": 2195,
+        "name": "Frêneze",
+        "slug": "freneze"
+      }
+    }
+  ]
+}
