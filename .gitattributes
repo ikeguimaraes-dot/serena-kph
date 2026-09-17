@@ -1,0 +1,2 @@
+# Review CSVs retain RFC 4180 CRLF and UTF-8 BOM for spreadsheet compatibility.
+docs/sprint1/catalogos/*.csv whitespace=cr-at-eol
