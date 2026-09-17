@@ -2412,7 +2412,7 @@ async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
         )
 
 
-async def _recalcular_ltv_contato(c, celular: str) -> None:
+async def _recalcular_ltv_contato(c, celular: str, restaurant_id: str) -> None:
     """Recalcula ltv_total e total_eventos de um único contato (conexão reutilizada).
 
     LTV = SUM(reservas pagas) + SUM(OS realizadas)
@@ -2425,6 +2425,7 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT SUM(r.pagamento_valor)
                    FROM reservas r
                    WHERE r.cliente_phone = $1
+                     AND r.restaurant_id = $2
                      AND r.pagamento_status = 'pago'
                ), 0)
                +
@@ -2432,6 +2433,7 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT SUM(o.valor_total)
                    FROM ordens_servico o
                    WHERE o.cliente_phone = $1
+                     AND o.restaurant_id = $2
                      AND o.status = 'realizado'
                ), 0)
            ),
@@ -2440,18 +2442,20 @@ async def _recalcular_ltv_contato(c, celular: str) -> None:
                    SELECT COUNT(*)
                    FROM reservas r
                    WHERE r.cliente_phone = $1
-                     AND r.status IN ('confirmada', 'realizada')
+                     AND r.restaurant_id = $2
+                     AND r.status IN ('confirmada', 'realizada', 'concluida')
                ), 0)
                +
                COALESCE((
                    SELECT COUNT(*)
                    FROM ordens_servico o
                    WHERE o.cliente_phone = $1
+                     AND o.restaurant_id = $2
                      AND o.status = 'realizado'
                ), 0)
            )
-           WHERE celular = $1""",
-        celular
+           WHERE celular = $1 AND restaurant_id = $2""",
+        celular, restaurant_id
     )
 
 
@@ -2464,7 +2468,7 @@ async def recalcular_ltv(restaurant_id: str) -> dict:
         # Contatos que interagiram com o restaurante via reservas OU OS
         rows = await c.fetch(
             """SELECT DISTINCT celular FROM contacts
-               WHERE celular IN (
+               WHERE restaurant_id = $1 AND celular IN (
                    SELECT DISTINCT cliente_phone FROM reservas   WHERE restaurant_id = $1
                    UNION
                    SELECT DISTINCT cliente_phone FROM ordens_servico WHERE restaurant_id = $1
@@ -2473,30 +2477,31 @@ async def recalcular_ltv(restaurant_id: str) -> dict:
         )
         contatos = [r["celular"] for r in rows]
         for celular in contatos:
-            await _recalcular_ltv_contato(c, celular)
+            await _recalcular_ltv_contato(c, celular, restaurant_id)
 
         total = await c.fetchval(
             """SELECT COALESCE(SUM(ltv_total), 0)
                FROM contacts
-               WHERE celular = ANY($1::text[])""",
-            contatos
+               WHERE celular = ANY($1::text[]) AND restaurant_id = $2""",
+            contatos, restaurant_id
         )
     return {"contatos_atualizados": len(contatos), "ltv_total_brl": float(total or 0)}
 
 
-async def registrar_nps(os_id: str, nota: int) -> None:
+async def registrar_nps(os_id: str, nota: int, restaurant_id: str) -> bool:
     """Salva nota NPS recebida via WhatsApp."""
     async with pool().acquire() as c:
-        await c.execute(
+        row = await c.fetchrow(
             """UPDATE ordens_servico
                SET nps_score = $1, nps_respondido_em = NOW()
-               WHERE id = $2""",
-            nota, os_id
+               WHERE id = $2 AND restaurant_id = $3 AND nps_score IS NULL
+               RETURNING cliente_phone""",
+            nota, os_id, restaurant_id
         )
         # Recalcula LTV combinado (reservas + OS) para o cliente da OS
-        row = await c.fetchrow("SELECT cliente_phone FROM ordens_servico WHERE id = $1", os_id)
         if row and row["cliente_phone"]:
-            await _recalcular_ltv_contato(c, row["cliente_phone"])
+            await _recalcular_ltv_contato(c, row["cliente_phone"], restaurant_id)
+        return row is not None
 
 
 async def marcar_os_realizada(os_id: str) -> None:

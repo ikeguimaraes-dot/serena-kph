@@ -187,7 +187,8 @@ async def validate_twilio_signature(
 
 MAX_MSG_LEN = 2000
 
-async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
+async def _tentar_capturar_nps(telefone: str, texto: str, restaurant_phone: str,
+                             source_message_sid: str | None = None, ctwa_clid: str | None = None) -> bool:
     """Retorna True se a mensagem era um NPS (1-10) e foi capturada."""
     import re as _re
     if not _re.fullmatch(r'[1-9]|10', texto.strip()):
@@ -195,8 +196,10 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     nota = int(texto.strip())
     # Busca OS com D+3 enviado, sem NPS ainda, desse telefone
     query = """
-        SELECT os.id FROM ordens_servico os
+        SELECT os.id, os.restaurant_id FROM ordens_servico os
+        JOIN restaurants r ON r.id=os.restaurant_id
         WHERE os.cliente_phone = $1
+          AND r.whatsapp_number = $2 AND r.ativo=true
           AND os.regua_d3_enviado_em IS NOT NULL
           AND os.nps_score IS NULL
         ORDER BY os.regua_d3_enviado_em DESC
@@ -204,10 +207,13 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     """
     from database import pool
     async with pool().acquire() as c:
-        row = await c.fetchrow(query, telefone)
+        row = await c.fetchrow(query, telefone, restaurant_phone)
     if row:
-        await db.registrar_nps(row["id"], nota)
-        return True
+        captured = await db.registrar_nps(row["id"], nota, row["restaurant_id"])
+        if captured:
+            await db.save_message(telefone, row["restaurant_id"], "user", texto,
+                                  source_message_sid=source_message_sid, ctwa_clid=ctwa_clid)
+        return captured
     return False
 
 
@@ -243,7 +249,7 @@ async def _process_and_reply(
                 print(f"[MEDIA] download falhou (best-effort): {e!r}")
 
         # Captura NPS antes de passar para o agente
-        if await _tentar_capturar_nps(user_phone, message):
+        if await _tentar_capturar_nps(user_phone, message, restaurant_phone, source_message_sid, ctwa_clid):
             nota = int(message.strip())
             if nota >= 9:
                 resposta_nps = "Que incrível! 🌟 Obrigado pela sua avaliação — seu feedback é muito importante para nós!"
