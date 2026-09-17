@@ -1,0 +1,17 @@
+[
+  {
+    "id": 5,
+    "ativa": false,
+    "restaurant_id": "meet_and_eat"
+  },
+  {
+    "id": 6,
+    "ativa": false,
+    "restaurant_id": "madonna_cucina"
+  },
+  {
+    "id": 7,
+    "ativa": false,
+    "restaurant_id": "freneze"
+  }
+]
