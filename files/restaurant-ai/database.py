@@ -774,15 +774,42 @@ async def set_evento_experiencias(evento_id: str, rid: str, experiencia_ids: lis
 async def save_message(
     user_phone: str, rid: str, role: str, content: str,
     media_url: str | None = None, media_type: str | None = None,
+    *, source_message_sid: str | None = None, ctwa_clid: str | None = None,
 ):
+    # Only inbound provider IDs participate in persistence idempotency. Missing
+    # IDs and repeated text with DIFFERENT IDs remain legitimate new messages.
+    source_message_sid = (source_message_sid or "").strip() or None
+    ctwa_clid = (ctwa_clid or "").strip() or None
+    if role != "user":
+        source_message_sid = ctwa_clid = None
     async with pool().acquire() as c:
-        await c.execute(
+        if source_message_sid or ctwa_clid:
+            row = await c.fetchrow("""
+                INSERT INTO conversations
+                  (user_phone,restaurant_id,role,content,media_url,media_type,source_message_sid,ctwa_clid)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+                ON CONFLICT (restaurant_id,source_message_sid)
+                  WHERE role='user' AND source_message_sid IS NOT NULL
+                DO NOTHING RETURNING id
+            """, user_phone, rid, role, content, media_url, media_type, source_message_sid, ctwa_clid)
+            return row["id"] if row else None
+        row = await c.fetchrow(
             "INSERT INTO conversations (user_phone,restaurant_id,role,content,media_url,media_type)"
-            " VALUES ($1,$2,$3,$4,$5,$6)",
+            " VALUES ($1,$2,$3,$4,$5,$6) RETURNING id",
             user_phone, rid, role, content, media_url, media_type)
+        return row["id"] if row else None
 
-async def get_history(user_phone: str, rid: str, limit: int = 20) -> list[dict]:
+async def get_history(user_phone: str, rid: str, limit: int = 20,
+                      *, exclude_source_message_sid: str | None = None) -> list[dict]:
     async with pool().acquire() as c:
+        if exclude_source_message_sid:
+            rows = await c.fetch("""
+                SELECT role,content FROM conversations
+                WHERE user_phone=$1 AND restaurant_id=$2
+                  AND (role <> 'user' OR source_message_sid IS DISTINCT FROM $4)
+                ORDER BY created_at DESC, id DESC LIMIT $3
+            """, user_phone, rid, limit, exclude_source_message_sid)
+            return [{"role": r["role"], "content": r["content"]} for r in reversed(rows)]
         rows = await c.fetch("""
             SELECT role,content FROM conversations
             WHERE user_phone=$1 AND restaurant_id=$2
@@ -1562,7 +1589,17 @@ async def record_serena_metric(metric: dict) -> Optional[str]:
         "serena_admitiu_nao_saber", "enviou_link_tagme", "intencao_detectada",
         "duracao_segundos", "num_mensagens", "prompt_versao_id",
     ]
+    # Add only supplied instrumentation fields, preserving legacy callers.
+    cols += [key for key in (
+        "source_message_sid", "modelo_observado", "usage_json", "tokens_cache_creation",
+        "tokens_cache_read", "tokens_cache_write_5m", "tokens_cache_write_1h",
+        "custo_input_usd", "custo_output_usd", "custo_cache_write_5m_usd",
+        "custo_cache_write_1h_usd", "custo_cache_read_usd", "custo_total_usd",
+        "tarifa_versao", "custo_status",
+    ) if key in metric]
     payload = {k: metric.get(k) for k in cols}
+    if "usage_json" in payload:
+        payload["usage_json"] = json.dumps(payload["usage_json"], ensure_ascii=False)
     fields = ",".join(payload.keys())
     placeholders = ",".join(f"${i+1}" for i in range(len(payload)))
     async with pool().acquire() as c:

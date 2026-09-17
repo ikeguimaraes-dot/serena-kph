@@ -1,0 +1,37 @@
+{
+  "verified_at": "2026-09-17T04:47:07.177699+00:00",
+  "duration_seconds": 15.92,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_instrumentation_restore.py",
+    "sha256": "d07a3c84cd50a899b4b05edc835792cddd1d5abb827964f1b6e9042493a337fe",
+    "success": true
+  },
+  "integration_assertions": {
+    "success": true,
+    "migration_replay": true,
+    "legacy_cost_preserved": true,
+    "sid_persistence_idempotency": true,
+    "same_text_distinct_or_missing_sid_preserved": true,
+    "ctwa_same_tenant_last_touch_7d": true,
+    "future_expired_and_retroactive_attribution_rejected": true,
+    "funnel_and_cost_tenant_isolation": true,
+    "existing_outcome_statuses_work": true,
+    "same_turn_reservation_before_metric_is_counted": true,
+    "weekly_sql_and_ltv_tenant_scope": true,
+    "external_messages_sent": 0
+  },
+  "offline_tests": {
+    "instrumentation": 9,
+    "existing_handoff_and_menu_regressions": 27,
+    "result": "PASS",
+    "external_messages_sent": 0,
+    "paid_model_calls": 0
+  },
+  "production_changes_by_this_task": false
+}

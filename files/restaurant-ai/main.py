@@ -129,6 +129,11 @@ def require_admin(x_admin_secret: Optional[str] = Header(None)):
     return True
 
 
+# Read-only commercial report; same privileged dependency as other reports.
+from commercial_report import create_router as _commercial_report_router
+app.include_router(_commercial_report_router(require_admin))
+
+
 # ── Twilio HMAC — valida autenticidade do webhook ─────────────
 async def validate_twilio_signature(
     request: Request,
@@ -206,6 +211,7 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
 async def _process_and_reply(
     user_phone: str, restaurant_phone: str, message: str, profile_name: str,
     media_items: list | None = None,
+    source_message_sid: str | None = None, ctwa_clid: str | None = None,
 ):
     """Processa mensagem via LLM e envia resposta via Twilio outbound.
 
@@ -249,6 +255,7 @@ async def _process_and_reply(
             user_phone, restaurant_phone, message, profile_name=profile_name,
             media_url=storage_url, media_type=storage_type,
             media_bytes=_vision_bytes,
+            source_message_sid=source_message_sid, ctwa_clid=ctwa_clid,
         )
         if response_text is None:
             return
@@ -270,6 +277,7 @@ async def whatsapp_webhook(
     background_tasks: BackgroundTasks,
     From: str = Form(...), Body: str = Form(""), To: str = Form(...),
     ProfileName: str = Form(""),
+    MessageSid: str = Form(""), ReferralCtwaClid: str = Form(""),
     NumMedia: int = Form(0),
     MediaUrl0: str = Form(""), MediaContentType0: str = Form(""),
     MediaUrl1: str = Form(""), MediaContentType1: str = Form(""),
@@ -317,7 +325,8 @@ async def whatsapp_webhook(
     # Retorna imediatamente para evitar timeout do Twilio (15s).
     # O processamento LLM + envio ocorrem em background via Twilio outbound.
     background_tasks.add_task(
-        _process_and_reply, user_phone, restaurant_phone, message, ProfileName, media_items or None
+        _process_and_reply, user_phone, restaurant_phone, message, ProfileName, media_items or None,
+        MessageSid.strip() or None, ReferralCtwaClid.strip() or None,
     )
     return _twiml_ack()
 
@@ -900,10 +909,10 @@ def _periodo_to_days(periodo: str) -> int:
     return 7
 
 @app.get("/api/serena/metrics", dependencies=[Depends(require_admin)])
-async def serena_metrics(periodo: str = "7d"):
+async def serena_metrics(periodo: str = "7d", rid: Optional[str] = Query(None)):
     days = _periodo_to_days(periodo)
     agent_id = os.environ.get("AGENT_NAME")
-    rid = agent_id.lower().strip() if agent_id else None
+    rid = rid.strip() if rid else (agent_id.lower().strip() if agent_id else None)
     key = f"overview:{days}:{rid or ''}"
     if key in _serena_metrics_cache:
         return _serena_metrics_cache[key]
