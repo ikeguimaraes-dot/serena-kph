@@ -1,0 +1,170 @@
+{
+  "created_at": "2026-09-17T04:40:06.848609+00:00",
+  "read_only": true,
+  "tagme_api_key_present": true,
+  "partner_app_id_present": true,
+  "credentials_sent_to_tagme": false,
+  "venues": {
+    "freneze": {
+      "restaurant_id": "freneze",
+      "name": "Frêneze",
+      "db_tagme_venue_id": null,
+      "own_turn_count": 0,
+      "venue_id_source": "Active tenant prompt; public identity must also match",
+      "venue_id": "6a73919fef73b2f5d86824de",
+      "requests": [
+        {
+          "url": "https://public.tagme.com.br/venues/6a73919fef73b2f5d86824de",
+          "checked_at": "2026-09-17T04:40:07.310136+00:00",
+          "status": 200,
+          "bytes": 733,
+          "sha256": "0d2a3cb38ae0819cd911da5b76c355d8381b2ea9acff33239d689cb49768585e"
+        },
+        {
+          "url": "https://public.tagme.com.br/venues/6a73919fef73b2f5d86824de/apps-availability",
+          "checked_at": "2026-09-17T04:40:07.528581+00:00",
+          "status": 200,
+          "bytes": 151,
+          "sha256": "e7b8aa2030afe42a6ff778e2fac8be7121fd7605c87d358b180d07e9ed3c2b52"
+        },
+        {
+          "url": "https://public.tagme.com.br/venues/6a73919fef73b2f5d86824de/availability-for-app/reservationWidget",
+          "checked_at": "2026-09-17T04:40:07.702411+00:00",
+          "status": 200,
+          "bytes": 2549052,
+          "sha256": "c67ed17bf09751800821abb424863b615ccd6bc84ce53686ef2442e9e6d790d4"
+        }
+      ],
+      "public_identity": {
+        "name": "Frêneze",
+        "address": {
+          "_id": "6a7392a02d6b53a4adf93121",
+          "city": "São Paulo",
+          "neighborhood": "Vila Olimpia",
+          "state": "SP"
+        }
+      },
+      "services": {
+        "reservation": {
+          "enabled": true,
+          "available": true
+        },
+        "waitlist": {
+          "enabled": true,
+          "available": false,
+          "new": false
+        },
+        "dineIn": {
+          "enabled": true,
+          "available": false
+        }
+      },
+      "availability": {
+        "server_time": "2026-09-17T01:40:07-03:00",
+        "available": true,
+        "minimum_antecedence_minutes": 180,
+        "maximum_antecedence_days": 90,
+        "delay_tolerance_minutes": 15,
+        "group_reservations": {
+          "enabled": true,
+          "minPartySize": 7,
+          "maxPartySize": 15
+        },
+        "day_count": 90,
+        "first_date": "2026-09-17",
+        "last_date": "2026-12-15",
+        "slot_combinations": 14454,
+        "capacity_people": null,
+        "capacity_mapping_status": "Not derivable: table quantities by party size are not additive physical seat capacity",
+        "reservation_history_exported": false
+      }
+    },
+    "meet_and_eat": {
+      "restaurant_id": "meet_and_eat",
+      "name": "Meet & Eat",
+      "db_tagme_venue_id": "62ffd74ddaf31500126b3e29",
+      "own_turn_count": 0,
+      "venue_id_source": "restaurants.tagme_venue_id",
+      "venue_id": "62ffd74ddaf31500126b3e29",
+      "requests": [
+        {
+          "url": "https://public.tagme.com.br/venues/62ffd74ddaf31500126b3e29",
+          "checked_at": "2026-09-17T04:40:09.018721+00:00",
+          "status": 200,
+          "bytes": 1106,
+          "sha256": "bf24c90e43bf94870de7d57577724bc712a859817c98bf56a43eeac00c86e0ec"
+        },
+        {
+          "url": "https://public.tagme.com.br/venues/62ffd74ddaf31500126b3e29/apps-availability",
+          "checked_at": "2026-09-17T04:40:09.184081+00:00",
+          "status": 200,
+          "bytes": 151,
+          "sha256": "e7b8aa2030afe42a6ff778e2fac8be7121fd7605c87d358b180d07e9ed3c2b52"
+        },
+        {
+          "url": "https://public.tagme.com.br/venues/62ffd74ddaf31500126b3e29/availability-for-app/reservationWidget",
+          "checked_at": "2026-09-17T04:40:09.371370+00:00",
+          "status": 200,
+          "bytes": 4782667,
+          "sha256": "9ca76df53bc61bf79db9125a572ab0b0f31963f5ee371c3ed63265ae6c9796f6"
+        }
+      ],
+      "public_identity": {
+        "name": "Meet & Eat",
+        "address": {
+          "_id": "62ffd964cfc5af0012c17608",
+          "city": "São Paulo",
+          "neighborhood": "Vila Olímpia",
+          "state": "SP"
+        }
+      },
+      "services": {
+        "reservation": {
+          "enabled": true,
+          "available": true
+        },
+        "waitlist": {
+          "enabled": true,
+          "available": false,
+          "new": false
+        },
+        "dineIn": {
+          "enabled": true,
+          "available": false
+        }
+      },
+      "availability": {
+        "server_time": "2026-09-17T01:02:17-03:00",
+        "available": true,
+        "minimum_antecedence_minutes": 60,
+        "maximum_antecedence_days": 90,
+        "delay_tolerance_minutes": 15,
+        "group_reservations": {
+          "enabled": true,
+          "minPartySize": 9,
+          "maxPartySize": 12
+        },
+        "day_count": 90,
+        "first_date": "2026-09-17",
+        "last_date": "2026-12-15",
+        "slot_combinations": 29650,
+        "capacity_people": null,
+        "capacity_mapping_status": "Not derivable: table quantities by party size are not additive physical seat capacity",
+        "reservation_history_exported": false
+      }
+    }
+  },
+  "history_rows_exported": 0,
+  "legacy_export": {
+    "status": "blocked",
+    "reason": "No authenticated venue-scoped export contract or session; Swagger request HTTP401 and stopped",
+    "rows_exported": 0,
+    "latest_reservation_date": null,
+    "customer_fields_exported": []
+  },
+  "official_reservation_links": {
+    "meet_and_eat": "https://reservation-widget.tagme.com.br/reservation/schedule/62ffd74ddaf31500126b3e29/reservationWidget",
+    "freneze": "https://reservation-widget.tagme.com.br/smartlink/6a73919fef73b2f5d86824de",
+    "madonna_cucina": "https://usetag.me/madonnacucina"
+  }
+}
