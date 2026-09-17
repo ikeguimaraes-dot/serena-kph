@@ -1,0 +1,67 @@
+{
+  "checked_at": "2026-09-17T05:26:08.063722+00:00",
+  "madonna_configured_day": {
+    "date": "2026-09-19",
+    "state": "available",
+    "slots": 5
+  },
+  "active_prompts": [
+    {
+      "id": 8,
+      "restaurant_id": "freneze",
+      "version": "v4-catalogo-agenda",
+      "active": true
+    },
+    {
+      "id": 9,
+      "restaurant_id": "madonna_cucina",
+      "version": "v14-catalogo-agenda",
+      "active": true
+    },
+    {
+      "id": 10,
+      "restaurant_id": "meet_and_eat",
+      "version": "v15-catalogo-agenda",
+      "active": true
+    }
+  ],
+  "disabled_reservation_rules": [
+    {
+      "restaurant_id": "meet_and_eat",
+      "stage": "reservation_confirmation",
+      "enabled": false,
+      "readback_verified": true
+    },
+    {
+      "restaurant_id": "meet_and_eat",
+      "stage": "reservation_reminder",
+      "enabled": false,
+      "readback_verified": true
+    },
+    {
+      "restaurant_id": "madonna_cucina",
+      "stage": "reservation_confirmation",
+      "enabled": false,
+      "readback_verified": true
+    },
+    {
+      "restaurant_id": "madonna_cucina",
+      "stage": "reservation_reminder",
+      "enabled": false,
+      "readback_verified": true
+    },
+    {
+      "restaurant_id": "freneze",
+      "stage": "reservation_confirmation",
+      "enabled": false,
+      "readback_verified": true
+    },
+    {
+      "restaurant_id": "freneze",
+      "stage": "reservation_reminder",
+      "enabled": false,
+      "readback_verified": true
+    }
+  ],
+  "messages_sent": 0
+}

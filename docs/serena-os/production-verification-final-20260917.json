@@ -1,0 +1,153 @@
+{
+  "checked_at": "2026-09-17T05:24:51.284223+00:00",
+  "checks": [
+    {
+      "check": "backend_health",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "login_page",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "private_api_anonymous_https://restaurant-ai-production-bb5d.up.railway.app",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "private_api_anonymous_https://madonna-painel.vercel.app",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "public_availability_meet_and_eat",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "state": "unconfigured"
+      }
+    },
+    {
+      "check": "public_page_meet_and_eat",
+      "passed": true,
+      "details": {
+        "http": 200,
+        "json_ld": true
+      }
+    },
+    {
+      "check": "report_v3_meet_and_eat",
+      "passed": true,
+      "details": {
+        "coverage": "incomplete",
+        "cost_per_contact_usd": null
+      }
+    },
+    {
+      "check": "public_availability_madonna_cucina",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "state": "unconfigured"
+      }
+    },
+    {
+      "check": "public_page_madonna_cucina",
+      "passed": true,
+      "details": {
+        "http": 200,
+        "json_ld": true
+      }
+    },
+    {
+      "check": "report_v3_madonna_cucina",
+      "passed": true,
+      "details": {
+        "coverage": "incomplete",
+        "cost_per_contact_usd": null
+      }
+    },
+    {
+      "check": "public_availability_freneze",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "state": "unconfigured"
+      }
+    },
+    {
+      "check": "public_page_freneze",
+      "passed": true,
+      "details": {
+        "http": 200,
+        "json_ld": true
+      }
+    },
+    {
+      "check": "report_v3_freneze",
+      "passed": true,
+      "details": {
+        "coverage": "incomplete",
+        "cost_per_contact_usd": null
+      }
+    },
+    {
+      "check": "public_availability_levvai",
+      "passed": true,
+      "details": {
+        "status": 200,
+        "state": "unconfigured"
+      }
+    },
+    {
+      "check": "public_page_levvai",
+      "passed": true,
+      "details": {
+        "http": 200,
+        "json_ld": true
+      }
+    },
+    {
+      "check": "report_v3_levvai",
+      "passed": true,
+      "details": {
+        "coverage": "incomplete",
+        "cost_per_contact_usd": null
+      }
+    },
+    {
+      "check": "operator_crm_read",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "operator_consent_read",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "operator_cannot_configure_outreach",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "operator_cannot_read_prompts",
+      "passed": true,
+      "details": null
+    },
+    {
+      "check": "unknown_availability_guard",
+      "passed": true,
+      "details": {
+        "text": "A disponibilidade para essa data precisa ser confirmada. Consulte a página de reservas: https://madonna-painel.vercel.app/reservar/meet_and_eat?data=2026-09-20&pessoas=4\nSe preferir, posso chamar a equipe.",
+        "tools": [
+          "verificar_disponibilidade"
+        ]
+      }
+    }
+  ],
+  "whatsapp_test_messages_sent": 0,
+  "synthetic_production_bookings": 0
+}
