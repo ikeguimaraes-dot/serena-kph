@@ -69,6 +69,12 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.update.assert_awaited_once_with("test", {**payload, "motivo_perda_detalhe": "Data mudou"},
                                            restaurant_id="first", operator_id=OPERATOR)
 
+    async def test_patch_can_clear_previous_loss_detail_explicitly(self):
+        payload = {"estagio_kanban": "perdido", "motivo_perda": "preco", "motivo_perda_detalhe": None}
+        response = await self.client.patch("/api/contacts/test?rid=first", json=payload, headers=HEADERS)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(self.update.await_args.args[1], payload)
+
     async def test_upsert_and_kanban_propagate_reason_and_actor(self):
         payload = {"estagio_kanban": "perdido", "motivo_perda": "preco"}
         response = await self.client.post("/api/contacts?rid=first", json={"celular": "test", **payload}, headers=HEADERS)

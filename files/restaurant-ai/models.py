@@ -185,8 +185,14 @@ class ContactStageFields(BaseModel):
     @model_validator(mode="after")
     def validate_stage(self):
         from crm_stages import validate_stage_payload
-        self.motivo_perda, self.motivo_perda_detalhe = validate_stage_payload(
+        reason, detail = validate_stage_payload(
             self.estagio_kanban, self.motivo_perda, self.motivo_perda_detalhe)
+        # PATCH must distinguish an omitted field from an explicit null.
+        supplied = self.model_fields_set.copy()
+        if "motivo_perda" in supplied:
+            self.motivo_perda = reason
+        if "motivo_perda_detalhe" in supplied:
+            self.motivo_perda_detalhe = detail
         return self
 
 

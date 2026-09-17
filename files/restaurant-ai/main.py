@@ -860,7 +860,8 @@ async def contact_conversations(celular: str, request: Request, limit: int = 100
 
 @app.patch("/api/contacts/{celular}")
 async def patch_contact(celular: str, data: ContactUpdate, request: Request):
-    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    payload = {k: v for k, v in data.model_dump(exclude_unset=True).items()
+               if v is not None or k == "motivo_perda_detalhe"}
     kwargs = {"restaurant_id": contact_tenant(request)}
     if "estagio_kanban" in payload:
         kwargs["operator_id"] = getattr(request.state, "operator", {}).get("id")

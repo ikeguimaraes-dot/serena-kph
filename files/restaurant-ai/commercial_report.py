@@ -2,7 +2,7 @@
 from datetime import date, datetime, time
 from zoneinfo import ZoneInfo
 
-VERSION = "commercial-cohort-v1"
+VERSION = "commercial-cohort-v2"
 TIMEZONE = ZoneInfo("America/Sao_Paulo")
 
 FUNNEL_SQL = """
@@ -23,6 +23,11 @@ WITH conversations_in_period AS (
   WHERE coalesce(source.created_at,m.horario_conversa) >= c.first_message
     AND coalesce(source.created_at,m.horario_conversa) < $3
   GROUP BY c.user_phone
+), proposals AS (
+  SELECT DISTINCT i.user_phone
+  FROM intents i JOIN ordens_servico os ON os.restaurant_id=$1 AND os.cliente_phone=i.user_phone
+    AND os.criado_em >= i.first_intent AND os.criado_em < $3
+    AND os.status IN ('proposta_enviada','entrada_paga','confirmado','realizado')
 ), outcomes AS (
   SELECT i.user_phone,
     bool_or(r.status IN ('confirmada','realizada','concluida','no_show')) AS confirmed_or_outcome,
@@ -37,11 +42,14 @@ SELECT count(*) AS contatos_com_conversa,
   coalesce(sum(c.messages),0) AS mensagens_inbound,
   count(*) FILTER (WHERE c.has_ctwa) AS contatos_com_ctwa,
   count(i.user_phone) AS contatos_com_intencao_reserva_ou_evento,
+  count(p.user_phone) AS contatos_com_proposta_registrada,
+  count(o.user_phone) AS contatos_com_reserva_registrada,
   count(*) FILTER (WHERE o.confirmed_or_outcome) AS contatos_com_confirmacao_ou_desfecho,
   count(*) FILTER (WHERE o.attended) AS contatos_com_reserva_realizada,
   count(*) FILTER (WHERE o.no_show) AS contatos_com_no_show
 FROM conversations_in_period c
 LEFT JOIN intents i ON i.user_phone=c.user_phone
+LEFT JOIN proposals p ON p.user_phone=c.user_phone
 LEFT JOIN outcomes o ON o.user_phone=c.user_phone
 """
 
@@ -93,17 +101,26 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
     last = datetime.combine(end, time.min, tzinfo=TIMEZONE)
     async with database_pool.acquire() as connection:
         async with connection.transaction(isolation="repeatable_read", readonly=True):
-            if not await connection.fetchval("SELECT EXISTS(SELECT 1 FROM restaurants WHERE id=$1)", restaurant_id):
+            business = await connection.fetchrow("SELECT nome,nome_agente FROM restaurants WHERE id=$1", restaurant_id)
+            if not business:
                 raise LookupError("Unidade não encontrada")
             funnel = _numbers(await connection.fetchrow(FUNNEL_SQL, restaurant_id, first, last))
             reservations = _numbers(await connection.fetchrow(RESERVATIONS_SQL, restaurant_id, first, last))
             costs = [_numbers(row) for row in await connection.fetch(COST_SQL, restaurant_id, first, last)]
+            losses = [_numbers(row) for row in await connection.fetch("""
+                SELECT loss_reason AS motivo,count(*) AS eventos,count(DISTINCT contact_id) AS contatos
+                FROM contact_stage_events WHERE restaurant_id=$1
+                  AND occurred_at >= $2 AND occurred_at < $3
+                  AND event_type='stage_changed' AND new_stage IN ('perdido','Inativo')
+                GROUP BY loss_reason ORDER BY count(*) DESC,loss_reason
+            """, restaurant_id, first, last)]
     contacts = funnel["contatos_com_conversa"]
     funnel["conversao_confirmacao_ou_desfecho_pct"] = (
         round(funnel["contatos_com_confirmacao_ou_desfecho"] * 100 / contacts, 2) if contacts else None)
     observed = [item["custo_observado_usd"] for item in costs if item["custo_observado_usd"] is not None]
     return {
         "report_version": VERSION, "restaurant_id": restaurant_id,
+        "unidade": dict(business), "perdas_registradas_no_periodo": losses,
         "periodo": {"inicio_inclusivo": start.isoformat(), "fim_exclusivo": end.isoformat(), "timezone": str(TIMEZONE)},
         "funil_por_contato": funnel, "reservas_criadas_no_periodo_status_atual": reservations,
         "custo_llm": {"moeda": "USD", "por_modelo_observado": costs,
@@ -113,12 +130,15 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
         "definicoes": {
             "conversa": "Um contato com ao menos uma mensagem inbound no período e unidade. Não representa sessão de 24h.",
             "intencao": "Classificação existente reserva_nova/evento. Usa horário da mensagem ligada pelo SID; sem esse vínculo, horário da métrica. Após primeira mensagem do contato no período.",
-            "confirmacao_ou_desfecho": "Reserva criada após a intenção e antes do fim; status atual confirmada, realizada, concluida ou no_show. É proxy, pois não há histórico de transições.",
+            "proposta": "Contato com ordem de serviço registrada após intenção no período, em proposta_enviada, entrada_paga, confirmado ou realizado. Registro não comprova envio nem leitura da proposta; não é etapa obrigatória para reserva de mesa.",
+            "confirmacao_ou_desfecho": "Reserva criada após a intenção e antes do fim; status atual confirmada, realizada, concluida ou no_show. Este relatório usa o estado atual, não reconstitui a data de confirmação.",
+            "perdas": "Novas transições explícitas para perdido no período; cada reabertura e nova perda pode produzir outro evento. Sem backfill de eventos anteriores à implantação.",
+            "persona": "Nome atual configurado na unidade; não atribui retroativamente uma versão de persona às conversas antigas.",
             "desfechos": "Status atual das reservas criadas no período, não quantidade de visitas ocorridas no período. Concluida legado conta como realizada. Um contato pode ter mais de um desfecho.",
             "atribuicao": "Último referral não vazio da mesma unidade e telefone nos 7 dias anteriores à criação. Snapshot sem retroatividade.",
         },
         "lacunas": [
-            "Sem histórico de transições, não reconstituir confirmação anterior de reservas canceladas nem status em uma data passada.",
+            "Histórico de transições começa na implantação de 17/09/2026. Este relatório usa status atuais e não reconstrói estados de períodos anteriores.",
             "Pagamentos registrados de reservas não são faturamento conciliado; sem conciliação com PDV/OS, receita realizada e ROI permanecem nulos.",
             "Custos Twilio não foram coletados; não estimar nem tratar como zero.",
             "Custos novos cobrem turnos gravados do agente principal com usage/modelo observados. Falhas antes da gravação, classificação de handoff, relatório LLM e outras integrações ainda não estão neste custo.",

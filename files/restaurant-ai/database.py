@@ -1272,7 +1272,8 @@ async def update_contact(celular: str, data: dict, restaurant_id: str | None = N
     if not restaurant_id:
         raise ValueError("restaurant_id obrigatório para o contato")
     _validate_contact_stage_fields(data)
-    fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
+    fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE
+              and (v is not None or k == "motivo_perda_detalhe")}
     if not fields:
         return await get_contact(celular, restaurant_id)
     set_clause = ",".join(f"{k}=${i+2}" for i, k in enumerate(fields))
