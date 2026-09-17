@@ -1,0 +1,23 @@
+[
+  {
+    "id": 8,
+    "ativa": false,
+    "restaurant_id": "freneze",
+    "version": "v4-catalogo-agenda",
+    "sha256": "efc20c43e9902d59529d8798d19ec7844c2b05caf74812fb1aa4f254a79a2e18"
+  },
+  {
+    "id": 9,
+    "ativa": false,
+    "restaurant_id": "madonna_cucina",
+    "version": "v14-catalogo-agenda",
+    "sha256": "c50329edb01c18a1b155ca93f80ad06b2de86c912fee4b08415d97b9fa472307"
+  },
+  {
+    "id": 10,
+    "ativa": false,
+    "restaurant_id": "meet_and_eat",
+    "version": "v15-catalogo-agenda",
+    "sha256": "7870b6dec30eb8729db34fa6517ff248e0866331bf6e77d7b8cea2d20b9e22a2"
+  }
+]

@@ -117,6 +117,9 @@ async def build_report(restaurant_id: str, start: date, end: date, *, database_p
     contacts = funnel["contatos_com_conversa"]
     funnel["conversao_confirmacao_ou_desfecho_pct"] = (
         round(funnel["contatos_com_confirmacao_ou_desfecho"] * 100 / contacts, 2) if contacts else None)
+    intents = funnel["contatos_com_intencao_reserva_ou_evento"]
+    funnel["conversao_intencao_para_confirmacao_pct"] = (
+        round(funnel["contatos_com_confirmacao_ou_desfecho"] * 100 / intents, 2) if intents else None)
     observed = [item["custo_observado_usd"] for item in costs if item["custo_observado_usd"] is not None]
     return {
         "report_version": VERSION, "restaurant_id": restaurant_id,
