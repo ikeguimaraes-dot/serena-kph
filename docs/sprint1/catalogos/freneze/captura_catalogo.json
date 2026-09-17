@@ -1,0 +1,17 @@
+{
+  "source_url": "https://api.shopfood.io/v2/stores/products?store_id=2195&order_type=5&catalog_type=menu",
+  "captured_at_utc": "2026-09-17T04:04:26.629069+00:00",
+  "http_status": 200,
+  "content_type": "application/json",
+  "bytes": 401540,
+  "sha256": "30b29b2523d0299481f2c19ad909b998a13011e3b27aa832a3499d4310e2e2a5",
+  "authorization_used": false,
+  "cookies_used": false,
+  "catalog_extracted": true,
+  "origin_public_page": "https://freneze.tagme.menu/menu/freneze",
+  "request_routing_headers": {
+    "Origin": "https://freneze.tagme.menu",
+    "Referer": "https://freneze.tagme.menu/",
+    "Accept-Language": "pt-BR"
+  }
+}

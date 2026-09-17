@@ -28,6 +28,7 @@ async def run():
                 rid, phone + rid,
             )
             await db.ensure_contact(phone, rid, rid)
+            await db.save_message(phone, rid, "user", "Synthetic conversation " + rid)
             await connection.execute(
                 "INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo) "
                 "VALUES ($1,$2,'Synthetic regression; never notify')", phone, rid,
@@ -45,6 +46,17 @@ async def run():
             )
 
         for rid in (first, second):
+            conversations = await db.get_conversations_list(rid)
+            assert len(conversations) == 1, "Conversation list must not duplicate the shared phone"
+            assert conversations[0]["user_phone"] == phone
+            assert conversations[0]["nome"] == rid, "Conversation must use its tenant's CRM name"
+            assert conversations[0]["content"] == "Synthetic conversation " + rid
+            for status in (None, "aguardando"):
+                handoffs = await db.get_handoff_sessions(rid, status)
+                assert len(handoffs) == 1, "Shared phone must not duplicate handoffs across tenants"
+                assert handoffs[0]["restaurant_id"] == rid and handoffs[0]["user_phone"] == phone
+                assert handoffs[0]["nome"] == rid, "Handoff must use its tenant's CRM name"
+
             result = await db.insights_aggregate(rid)
             gold = [row for item in result["insights"] if item["kind"] == "ouro_aguardando"
                     for row in item["items"]]
@@ -58,7 +70,7 @@ async def run():
                 assert gold == [], "Other tenant must not inherit the same phone's Ouro tier"
                 assert inactive == [], "Inactive clients must be counted within the tenant"
                 assert patterns == [], "Handoff categories must be counted within the tenant"
-        print("PASS: insights compile; same-phone profiles, inactive clients and handoffs isolated")
+        print("PASS: insights compile; conversations, handoffs and CRM profiles isolated by tenant")
     finally:
         await transaction.rollback()
         db._pool = None

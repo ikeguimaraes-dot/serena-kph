@@ -803,6 +803,7 @@ async def get_conversations_list(rid: str, limit: int = 50) -> list[dict]:
                   cv.role, cv.media_url, cv.media_type
                 FROM conversations cv
                 LEFT JOIN contacts ct ON ct.celular = cv.user_phone
+                  AND ct.restaurant_id = cv.restaurant_id
                 WHERE cv.restaurant_id=$1
                 ORDER BY cv.user_phone, cv.created_at DESC
             ) latest
@@ -934,6 +935,7 @@ async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dic
     q = """SELECT hs.*, ct.nome, ct.sobrenome
            FROM handoff_sessions hs
            LEFT JOIN contacts ct ON ct.celular = hs.user_phone
+             AND ct.restaurant_id = hs.restaurant_id
            WHERE hs.restaurant_id=$1"""
     params: list = [rid]
     if status:

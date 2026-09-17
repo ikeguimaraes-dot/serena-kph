@@ -7,7 +7,7 @@ Auditoria local de 17/09/2026. **Carga no banco bloqueada até aprovação expl�
 | Casa | Evidência local | Resultado |
 |---|---|---|
 | Meet & Eat | CSV, JSON normalizado e JSON bruto do Tagme | 277 itens, 46 categorias, 277 IDs de produto únicos |
-| Frêneze | CSV de 63 bytes só com cabeçalho; JSON `[]` de 2 bytes; captura de tela | **Extração não concluída: 0 itens extraídos.** A captura mostra um cardápio renderizado; os arquivos vazios não significam ausência de produtos |
+| Frêneze | Extração pública concluída após a auditoria inicial dos arquivos vazios | **210 produtos + 146 variantes/componentes**, aguardando revisão. [Pacote e evidências](freneze/README.md) |
 | Madonna | Extrator configurado com `https://livemenu.app/menu/COLE_O_ID_AQUI` | Sem catálogo ou URL válida nos arquivos examinados; pendente obter fonte oficial |
 
 Escopo da busca de Madonna: `cardapios_extraidos`, extratores da raiz, `docs`, `files/restaurant-ai` e `restaurant-ai`, excluindo dependências. Foram encontradas referências históricas de testes e migrações de agenda; nenhuma era fonte de catálogo comercial. Não foi feita extração autenticada nem busca em arquivos pessoais fora desse escopo.

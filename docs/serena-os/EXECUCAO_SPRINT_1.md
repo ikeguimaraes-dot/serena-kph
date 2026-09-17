@@ -35,15 +35,16 @@ Os checkouts originais têm trabalho local em andamento e foram preservados.
 
 | ID | Entrega | Critério de conclusão | Estado |
 |---|---|---|---|
-| S1-01 | Consulta de catálogo segura | Distinguir base vazia, busca sem resultado e erro; testes e deploy | Código e 9 testes prontos; release em preparação |
-| S1-02 | Reconciliação de código | Recuperação + rota clínica integradas na main, deploy identificado e verificado | Código e 18 testes prontos; release em preparação |
+| S1-01 | Consulta de catálogo segura | Distinguir base vazia, busca sem resultado e erro; testes e deploy | Publicada e verificada dentro do container nas quatro unidades |
+| S1-02 | Reconciliação de código | Recuperação + rota clínica integradas na main, deploy identificado e verificado | Main reconciliada e deploy SUCCESS; função clínica presente; entrega humana ainda pendente |
 | S1-03 | Revisão do Meet | CSV completo, divergências marcadas, aprovação item a item do Ike | Pacote de 277 itens + 203 opções pronto; aprovação pendente |
-| S1-04 | Extração Frêneze/Madonna | Fonte real, preços e opções preservados, revisão e prova | Pendente; Frêneze tem extração vazia e Madonna sem URL |
+| S1-04 | Extração Frêneze/Madonna | Fonte real, preços e opções preservados, revisão e prova | Frêneze: 210 produtos + 146 componentes extraídos e verificados, revisão pendente; Madonna sem URL |
 | S1-05 | Carga de catálogo | Aprovação dos dados + importação transacional + SELECT de prova | Bloqueada por S1-03/04 |
 | S1-06 | Handoff de quatro unidades | Destinatário por unidade, canal e recebimento comprovado | Meet/Madonna sem responsáveis; WhatsApp fora de janela depende de template |
 | S1-07 | Dados das casas | Telefones/sites/limites/ambientes confirmados | Aguardando dados do Ike |
 | S1-08 | Prompts completos e visão | Novas versões coerentes com fontes, testes e aprovação | Preparar após dados; modo seguro mantido |
-| S1-09 | Erro de insights pós-recuperação | Endpoint sem 500 e sem cruzar nomes/tier entre unidades | Código e teste transacional prontos; release em preparação |
+| S1-09 | Erro de insights pós-recuperação | Endpoint sem 500 e sem cruzar nomes/tier entre unidades | Publicada; quatro endpoints retornaram HTTP 200; isolamento testado com rollback |
+| S1-10 | Autorização e operações CRM | Operações mutáveis autenticadas e escopo por unidade, incluindo proxy do painel | P1 identificado; requer entrega própria antes de uso externo |
 
 ## Dados solicitados e revisão
 
@@ -53,6 +54,7 @@ por Meet & Eat e Madonna, incluindo se são compartilhados.
 Após localizar/importar fontes, ainda são necessários:
 
 - Revisão dos 277 itens Meet, especialmente variantes de preço, adicionais e itens desativados.
+- Revisão dos 210 produtos Frêneze e 146 variantes/componentes, incluindo a Experiência Frêneze.
 - Limite de pessoas por reserva de cada unidade, coerente com os prompts.
 - Nome comercial dos ambientes Meet e capacidades reais das demais unidades.
 - Telefone público/site oficial por unidade.
@@ -88,6 +90,36 @@ Primeira entrega técnica:
 - O remetente clínico vem da própria Levvai; falta de gerente/remetente/falha de canal
   mantém o atendimento no painel com alerta. Aceitação Twilio não é entrega confirmada.
 
-Commit/PR e deployment serão acrescentados após publicação e verificação.
-Testes de mensagens devem usar mocks ou `/api/serena/test-message` sem envio; entrega
-real de handoff só será declarada após evidência de recebimento.
+- [PR #39](https://github.com/ikeguimaraes-dot/serena-kph/pull/39) integrado à `main`:
+  merge `bab278b27045673552c605b2d0f5ad7547e035ed`.
+- Railway deployment `3343c7ec-9543-4792-87ed-f87de45b4e2b`, SUCCESS, origem GitHub/main.
+- CI pós-deploy `35180594088` concluído com sucesso.
+- `/health` e `/api/insights?rid=...` nas quatro unidades retornaram HTTP 200.
+- Verificação dentro do container: `lookup_menu` retornou `CATALOGO_INDISPONIVEL`
+  nas quatro unidades; função clínica presente. SHA-256 dos quatro arquivos de código
+  iguais aos do release local. Não houve envio de mensagem nessa verificação.
+
+### Complemento de isolamento e catálogo
+
+- Listagens de conversas e handoffs agora associam contatos por telefone **e unidade**.
+  O teste transacional passou com o mesmo telefone, nomes diferentes em duas unidades
+  e consultas com/sem filtro de status. Todos os registros sintéticos foram desfeitos.
+- [Frêneze: pacote de revisão](../sprint1/catalogos/freneze/README.md) contém 210 produtos,
+  146 componentes, fontes brutas, datas, caminhos dos preços no JSON e hashes.
+  A API pública e os 90 detalhes retornaram HTTP 200, sem autenticação.
+  Os arquivos vazios citados no baseline eram os antigos; esta extração os complementa.
+- Os 210 preços e 146 componentes foram confrontados com a origem. Todos seguem
+  PENDENTE. Valores e disponibilidade ainda precisam de confirmação operacional.
+
+### Pendências adicionais encontradas no código
+
+- Algumas rotas de escrita de handoff/CRM não têm a dependência `require_admin`;
+  algumas atualizações de CRM usam somente telefone, apesar da chave ser composta.
+  A correção exige revisar também a autorização do proxy Next.js e as permissões
+  por unidade. Registrado como P1; este release não resolve esse conjunto nem certifica
+  isolamento completo/autorização para clientes externos.
+
+Testes de mensagens devem usar mocks ou chamadas comprovadamente somente de leitura.
+O endpoint `/api/serena/test-message` pode executar ferramentas com efeitos colaterais;
+não deve ser tratado como sandbox geral. Entrega real de handoff só será declarada
+após evidência de recebimento.

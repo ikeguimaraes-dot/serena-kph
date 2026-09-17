@@ -1,0 +1,17 @@
+{
+  "data": "2026-09-17",
+  "products_verified": 210,
+  "components_verified": 146,
+  "source_price_pointers_verified": true,
+  "all_pending": true,
+  "source_and_artifact_hashes_match": true,
+  "meet_unchanged": true,
+  "overwrite_refused": true,
+  "credential_pattern_hits": 0,
+  "credential_scan_scope": "Arquivos deste pacote: padroes de chaves Google, sk-, JWT e conexoes PostgreSQL; respostas JSON tambem examinadas por nomes de campos token/password/secret/api_key antes de salvar.",
+  "http_shell": 403,
+  "catalog_http": 200,
+  "detail_http_200_count": 90,
+  "database_written": false,
+  "commercial_approval": "PENDENTE"
+}
