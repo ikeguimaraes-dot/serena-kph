@@ -58,7 +58,7 @@ TOOLS = [
         "data":{"type":"string","description":"Data no formato YYYY-MM-DD ou descrição como 'hoje', 'amanhã'"}
      },"required":["data"]}},
     {"name":"get_reservation_link","description":(
-        "Gera link do Tagme pré-preenchido com data, horário e número de pessoas."
+        "Gera link da página de reservas da unidade atual, com data, horário e número de pessoas."
      ),
      "input_schema":{"type":"object","properties":{
         "pessoas":{"type":"integer","description":"Número de pessoas"},
@@ -78,7 +78,7 @@ TOOLS = [
         "pessoas":{"type":"integer","description":"Número de pessoas"}
      },"required":["data","pessoas"]}},
     {"name":"fazer_reserva","description":(
-        "Cria uma reserva na agenda própria. "
+        "Registra uma reserva pendente na agenda própria; a equipe ainda precisa confirmar. "
         "Só chame após verificar_disponibilidade E confirmar data, horário e nome com o cliente."
      ),
      "input_schema":{"type":"object","properties":{
@@ -173,6 +173,7 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
 
         if name == "get_reservation_link":
             return tool_fns.get_reservation_link(
+                restaurant_id=rid,
                 pessoas=inputs.get("pessoas"),
                 data=inputs.get("data"),
                 horario=inputs.get("horario"),

@@ -1968,61 +1968,18 @@ async def get_turnos(restaurant_id: str, dia_semana: int) -> list[dict]:
 
 
 async def check_disponibilidade(restaurant_id: str, data: str, turno_id: str, posicoes: int) -> dict:
-    from datetime import date as _date
-    import json
-    try:
-        data_obj = _date.fromisoformat(data) if isinstance(data, str) else data
-    except ValueError:
-        data_obj = _date.today()
+    from reservation_service import check_slot, BookingError
     async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            SELECT verificar_disponibilidade($1, $2::DATE, $3::UUID, $4) as resultado
-        """, restaurant_id, data_obj, turno_id, posicoes)
-    res = row["resultado"]
-    if isinstance(res, str):
         try:
-            return json.loads(res)
-        except Exception:
-            pass
-    return res
-
+            result = await check_slot(c, restaurant_id, data, turno_id, posicoes)
+            return {"disponivel": True, "posicoes_disponiveis": result["remaining"]}
+        except BookingError as exc:
+            return {"disponivel": False, "motivo": exc.message, "code": exc.code, "http_status": exc.status}
 
 
 async def criar_reserva(data: dict) -> dict:
-    from datetime import date as _date, time as _time
-    raw_data = data["data"]
-    try:
-        data_obj = _date.fromisoformat(raw_data) if isinstance(raw_data, str) else raw_data
-    except ValueError:
-        data_obj = _date.today()
-
-    raw_time = data["hora_inicio"]
-    if isinstance(raw_time, str):
-        try:
-            parts = [int(x) for x in raw_time.split(":")]
-            time_obj = _time(hour=parts[0], minute=parts[1], second=parts[2] if len(parts) > 2 else 0)
-        except Exception:
-            time_obj = raw_time
-    else:
-        time_obj = raw_time
-
-    async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            INSERT INTO reservas (
-                restaurant_id, turno_id, evento_id,
-                cliente_phone, cliente_nome, cliente_email,
-                data, hora_inicio, posicoes, canal, observacoes,
-                pagamento_status, pagamento_valor
-            ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
-            RETURNING *
-        """,
-        data["restaurant_id"], data.get("turno_id"), data.get("evento_id"),
-        data["cliente_phone"], data["cliente_nome"], data.get("cliente_email"),
-        data_obj, time_obj, data["posicoes"],
-        data.get("canal", "whatsapp"), data.get("observacoes"),
-        data.get("pagamento_status", "nao_requerido"), data.get("pagamento_valor"))
-    return dict(row)
-
+    from reservation_service import create_booking
+    return await create_booking(pool(), data)
 
 
 async def get_reserva(reserva_id: str) -> Optional[dict]:
@@ -2091,13 +2048,8 @@ async def atualizar_status_reserva(reserva_id: str, restaurant_id: str, status: 
     """Atualiza status de uma reserva. Retorna a reserva atualizada ou None se não encontrada."""
     if status not in _STATUS_RESERVA_VALIDOS:
         raise ValueError(f"Status inválido: {status}. Válidos: {_STATUS_RESERVA_VALIDOS}")
-    async with pool().acquire() as c:
-        row = await c.fetchrow("""
-            UPDATE reservas SET status = $3
-            WHERE id = $1 AND restaurant_id = $2
-            RETURNING *
-        """, reserva_id, restaurant_id, status)
-    return dict(row) if row else None
+    from reservation_service import update_booking_status
+    return await update_booking_status(pool(), reserva_id, restaurant_id, status)
 
 
 async def listar_reservas_semana(restaurant_id: str, data_inicio: str) -> list[dict]:
@@ -2175,7 +2127,7 @@ async def get_disponibilidade_semana(restaurant_id: str, data_inicio: str, dias:
                AND t.dia_semana = EXTRACT(DOW FROM d.data)::INT
                AND t.ativo = true
             LEFT JOIN reservas r
-                ON r.turno_id = t.id AND r.data = d.data::date
+                ON r.turno_id = t.id AND r.restaurant_id = t.restaurant_id AND r.data = d.data::date
             LEFT JOIN agenda_bloqueios b
                 ON b.restaurant_id = $1
                AND b.data_inicio::date <= d.data::date

@@ -35,6 +35,8 @@ from email_service import (
     send_comprovante_pagamento,
 )
 from api_access import authorize_api_request, contact_tenant
+from reservation_service import BookingError
+from public_reservations import router as public_reservation_router
 
 # ── Onda 8 — Cache em memória ─────────────────────────────────
 # /api/reports é caro (15 queries em paralelo). Cache 60s reduz pressão.
@@ -103,6 +105,7 @@ def _start_weekly_cron():
 
 app = FastAPI(title="Restaurant AI — API", lifespan=lifespan,
               dependencies=[Depends(authorize_api_request)])
+app.include_router(public_reservation_router)
 
 # CORS — whitelist em produção (env CORS_ORIGINS=comma,separated). Default seguro.
 _default_origins = "https://madonna-painel.vercel.app,https://madonna-cucina-painel.vercel.app,http://localhost:3000"
@@ -651,16 +654,11 @@ async def nova_reserva(restaurant_id: str, body: dict = Body(...)):
 
     body["restaurant_id"] = restaurant_id
 
-    # Verifica disponibilidade apenas se turno_id foi resolvido
-    if turno_id:
-        disponivel = await db.check_disponibilidade(
-            restaurant_id, body["data"], turno_id, int(body["posicoes"])
-        )
-        if not disponivel.get("disponivel"):
-            raise HTTPException(409, detail=disponivel.get("motivo", "Sem disponibilidade"))
-
-    reserva = await db.criar_reserva(body)
-    return reserva
+    # The shared creation path repeats checks under a transaction lock.
+    try:
+        return await db.criar_reserva(body)
+    except BookingError as exc:
+        raise HTTPException(exc.status, detail=exc.message)
 
 @app.get("/api/agenda/{restaurant_id}/reservas/{reserva_id}")
 async def get_reserva(restaurant_id: str, reserva_id: str):
@@ -716,6 +714,8 @@ async def atualizar_status_reserva(
         raise HTTPException(422, "Campo 'status' obrigatório")
     try:
         reserva = await db.atualizar_status_reserva(reserva_id, restaurant_id, status)
+    except BookingError as exc:
+        raise HTTPException(exc.status, exc.message)
     except ValueError as e:
         raise HTTPException(422, str(e))
     if not reserva:
