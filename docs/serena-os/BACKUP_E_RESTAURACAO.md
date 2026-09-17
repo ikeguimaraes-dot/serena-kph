@@ -10,7 +10,9 @@
   reimportação idempotente, edição manual preservada, preços validados e rollback.
   Restauração + ensaio: **43,03 segundos**. Nove testes offline de proteção também passaram.
 - O cluster de ensaio foi encerrado e removido. Nenhuma escrita de recuperação foi executada na produção.
-- Rotina diária preparada para **03:15 no fuso local da máquina**. A preparação não ativa o agendamento.
+- Rotina diária **ativada para 03:15 no fuso local da máquina** em 17/09/2026.
+  `launchctl print gui/501/com.serena.backup` confirmou o serviço carregado;
+  plist validado e com permissão 0600. `RunAtLoad=false` foi preservado.
 
 Provas sem dados pessoais: `docs/serena-os/backup-restore-proof-20260917.json`.
 Arquivo completo privado: `~/.local/share/serena-backups/20260917T042832.111509Z/restore-proof.json`.
@@ -87,7 +89,7 @@ interrupção longa. Backups falhos/parciais não são usados para remover backu
 devem ser inspecionados e removidos manualmente quando não forem mais úteis.
 Uma trava impede execuções simultâneas.
 
-## Agendamento preparado — ativação separada
+## Agendamento diário ativo — procedimento de reinstalação
 
 `prepare_backup_launchd.py` copia o programa para um caminho estável fora do worktree
 (`~/.local/lib/serena-backup/serena_backup.py`) e gera um plist concreto:
@@ -98,8 +100,8 @@ Uma trava impede execuções simultâneas.
 plutil -lint "$HOME/.local/share/serena-backups/prepared/com.serena.backup.plist"
 ```
 
-A preparação foi executada e o plist passou na validação. **Não foi carregado nesta
-etapa.** Para a ativação coordenada, executar:
+A preparação e ativação foram executadas e o plist passou na validação. Em uma
+reinstalação, depois de conferir a configuração privada, executar:
 
 ```bash
 mkdir -p "$HOME/Library/LaunchAgents"
