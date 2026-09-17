@@ -975,148 +975,23 @@ async def serena_training_export(formato: str = "jsonl", limit: int = 1000):
     return PlainTextResponse(body, media_type="application/x-ndjson")
 
 
-# ── Nurture automático (Sprint 2) ─────────────────────────────
+# ── Régua auditável: compatibilidade das rotas antigas, prévia por padrão ──
+from outreach import create_router as _outreach_router, run as _run_outreach
+app.include_router(_outreach_router(require_admin))
+
 
 @app.post("/api/serena/nurture", dependencies=[Depends(require_admin)])
-async def serena_nurture(background_tasks: BackgroundTasks, dry_run: bool = False):
-    """Roda a régua de nurture: busca leads mornos inativos há 3+ dias e envia via Twilio.
+async def serena_nurture(background_tasks: BackgroundTasks, rid: str = Query(...), dry_run: bool = True):
+    return await _run_outreach(rid, "nurture", dry_run=dry_run)
 
-    Roda diariamente via cron externo (ex: Railway Cron ou GitHub Actions).
-    dry_run=true retorna os leads sem enviar mensagens.
-    """
-    leads = await db.get_nurture_leads(days_inactive=3)
-    if dry_run:
-        return {"dry_run": True, "leads": leads, "total": len(leads)}
-
-    restaurant = await db.get_restaurant_full(os.environ.get("AGENT_NAME", "madonna_cucina"))
-    sent = []
-    errors = []
-
-    for lead in leads:
-        celular = lead["celular"]
-        nome = (lead["nome"] or "").split()[0] or "você"
-        try:
-            msg = (
-                f"Oi {nome}! Ainda pensando em visitar a gente? "
-                f"Temos novidades que podem te interessar — e adoraríamos ajudar a encontrar a data perfeita. "
-                f"Me conta quando está pensando em vir! 😊"
-            )
-            background_tasks.add_task(
-                notif.send_to_customer,
-                restaurant["whatsapp_number"],
-                celular,
-                msg,
-            )
-            # Registra nas notas do contato
-            nota = f"[Nurture automático enviado em {__import__('datetime').date.today()}]"
-            notas_atuais = lead.get("notas") or ""
-            await db.update_contact(celular, {"notas": f"{notas_atuais}\n{nota}".strip()}, restaurant_id=lead["restaurant_id"])
-            sent.append(celular)
-        except Exception as e:
-            errors.append({"celular": celular, "error": str(e)})
-
-    return {"sent": len(sent), "errors": len(errors), "details": errors or None}
-
-
-# ─── Régua pós-evento ────────────────────────────────────────────
 
 @app.post("/api/serena/pos-evento", dependencies=[Depends(require_admin)])
-async def rodar_regua_pos_evento(
-    background_tasks: BackgroundTasks,
-    rid: str = Query("madonna_cucina"),
-):
-    background_tasks.add_task(_job_regua_pos_evento, rid)
-    return {"status": "job_iniciado", "restaurant_id": rid}
+async def rodar_regua_pos_evento(background_tasks: BackgroundTasks, rid: str = Query(...), dry_run: bool = True):
+    return await _run_outreach(rid, "pos_evento", dry_run=dry_run)
 
 
-async def _job_regua_pos_evento(restaurant_id: str):
-    from datetime import datetime, timezone, timedelta
-    agora = datetime.now(timezone.utc)
-
-    restaurant = await db.get_restaurant_full(restaurant_id)
-    restaurant_phone = restaurant["whatsapp_number"] if restaurant else None
-
-    os_list = await db.get_os_para_regua(restaurant_id)
-    enviados: list = []
-
-    for os_item in os_list:
-        os_id     = os_item["id"]
-        telefone  = os_item["telefone"]
-        nome      = (os_item["contact_nome"] or "você").split()[0]
-        titulo    = os_item["titulo"] or "o evento"
-        realizado = os_item["evento_realizado_em"]
-
-        if not realizado or not telefone or not restaurant_phone:
-            continue
-
-        delta = agora - realizado
-
-        _twilio = notif._client()
-        _from   = f"whatsapp:{restaurant_phone or os.environ.get('TWILIO_FROM_NUMBER', '')}"
-        _to     = f"whatsapp:{telefone}"
-        _vars   = json.dumps({"1": nome, "2": titulo})
-
-        # D+1 — Agradecimento (entre 20h e 30h após o evento)
-        if (
-            not os_item["regua_d1_enviado_em"]
-            and timedelta(hours=20) <= delta <= timedelta(hours=30)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HX7a16cfb714c360daa4cb1dd391839f1a",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d1")
-            enviados.append({"os_id": os_id, "etapa": "d1"})
-
-        # D+3 — NPS (entre 68h e 80h após o evento)
-        elif (
-            os_item["regua_d1_enviado_em"]
-            and not os_item["regua_d3_enviado_em"]
-            and timedelta(hours=68) <= delta <= timedelta(hours=80)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HXe90e74853e6f43815ed076964f39030b",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d3")
-            enviados.append({"os_id": os_id, "etapa": "d3"})
-
-        # D+7 — Fotos (entre 7d e 8d após o evento)
-        elif (
-            os_item["regua_d3_enviado_em"]
-            and not os_item["regua_d7_enviado_em"]
-            and timedelta(days=7) <= delta <= timedelta(days=8)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HXaacf87d6d7d582ff3a26c98bd41b9637",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d7")
-            enviados.append({"os_id": os_id, "etapa": "d7"})
-
-        # D+30 — Reativação (entre 30d e 32d após o evento)
-        elif (
-            os_item["regua_d7_enviado_em"]
-            and not os_item["regua_d30_enviado_em"]
-            and timedelta(days=30) <= delta <= timedelta(days=32)
-        ):
-            if _twilio:
-                _twilio.messages.create(
-                    from_=_from, to=_to,
-                    content_sid="HX2f99ec2032087dc650b2e84047345048",
-                    content_variables=_vars,
-                )
-            await db.marcar_regua_enviada(os_id, "d30")
-            enviados.append({"os_id": os_id, "etapa": "d30"})
-
-    print(f"[pos-evento] {len(enviados)} mensagens enviadas")
-    return {"enviados": len(enviados)}
+async def _job_regua_pos_evento(restaurant_id: str, dry_run: bool = True):
+    return await _run_outreach(restaurant_id, "pos_evento", dry_run=dry_run)
 
 
 # ── Versionamento de prompt ────────────────────────────────────

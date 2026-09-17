@@ -1301,28 +1301,36 @@ async def get_funil_stats(restaurant_id: str | None = None) -> dict:
     }
 
 
-async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
+async def get_nurture_leads(days_inactive: int = 3, restaurant_id: str | None = None) -> list[dict]:
     """Leads MORNOS sem interação há N+ dias — candidatos ao nurture automático."""
+    if not restaurant_id:
+        raise ValueError("Unidade obrigatória para nurture")
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT c.celular, c.nome, c.lead_score, c.atualizado_em, c.notas,
                    r.restaurant_id
             FROM contacts c
-            JOIN (
-                SELECT DISTINCT user_phone, restaurant_id
-                FROM conversations
-                WHERE created_at >= NOW() - INTERVAL '90 days'
-            ) r ON r.user_phone = c.celular AND r.restaurant_id = c.restaurant_id
-            WHERE c.lead_score = 'morno'
-              AND c.atualizado_em < NOW() - ($1 || ' days')::INTERVAL
+            JOIN LATERAL (
+                SELECT restaurant_id,created_at FROM conversations cv
+                WHERE cv.restaurant_id=c.restaurant_id AND cv.user_phone=c.celular AND cv.role='user'
+                ORDER BY created_at DESC,id DESC LIMIT 1
+            ) r ON true
+            WHERE c.restaurant_id=$2 AND c.lead_score = 'morno'
+              AND c.opt_in_marketing IS TRUE
+              AND (SELECT e.granted FROM outreach_consent_events e
+                   WHERE e.restaurant_id=c.restaurant_id AND e.customer_phone=c.celular
+                   ORDER BY e.id DESC LIMIT 1) IS TRUE
+              AND r.created_at < NOW() - ($1 || ' days')::INTERVAL
+              AND r.created_at >= NOW() - INTERVAL '90 days'
               AND NOT EXISTS (
                 SELECT 1 FROM reservas rv
                 WHERE rv.cliente_phone = c.celular
+                  AND rv.restaurant_id=c.restaurant_id
                   AND rv.status IN ('pendente','confirmada')
               )
-            ORDER BY c.atualizado_em ASC
+            ORDER BY r.created_at ASC
             LIMIT 100
-        """, str(days_inactive))
+        """, str(days_inactive), restaurant_id)
     return [dict(r) for r in rows]
 
 
@@ -2396,7 +2404,7 @@ async def get_os_para_regua(restaurant_id: str) -> list[dict]:
         return [dict(r) for r in rows]
 
 
-async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
+async def marcar_regua_enviada(os_id: str, etapa: str, *, restaurant_id: str | None = None, provider_message_sid: str | None = None) -> None:
     """Marca timestamp de envio da etapa da régua. etapa: d1|d3|d7|d30"""
     col_map = {
         "d1":  "regua_d1_enviado_em",
@@ -2407,10 +2415,14 @@ async def marcar_regua_enviada(os_id: str, etapa: str) -> None:
     col = col_map.get(etapa)
     if not col:
         raise ValueError(f"Etapa inválida: {etapa}")
+    if not restaurant_id or not provider_message_sid:
+        raise ValueError("Envio exige unidade e SID confirmado na outbox")
     async with pool().acquire() as c:
         await c.execute(
-            f"UPDATE ordens_servico SET {col} = NOW() WHERE id = $1",
-            os_id
+            f"UPDATE ordens_servico SET {col} = COALESCE({col},NOW()) WHERE id::text = $1 AND restaurant_id=$2 "
+            "AND EXISTS(SELECT 1 FROM outreach_outbox o WHERE o.restaurant_id=$2 AND o.object_type='ordem_servico' "
+            "AND o.object_id=$1 AND o.stage=$3 AND o.status='sent' AND o.provider_message_sid=$4)",
+            str(os_id), restaurant_id, etapa, provider_message_sid
         )
 
 
