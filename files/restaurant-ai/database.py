@@ -275,7 +275,7 @@ async def get_business_hours_for_date(rid: str, target_date) -> dict:
                 "dia": target_dia_acc,
             }
     return {
-        "especial": False, "aberto": False, "horario": None,
+        "especial": False, "aberto": None, "horario": None,
         "observacao": "Horário não cadastrado para este dia.",
         "data_iso": str(target_date), "dia": target_dia_acc,
     }
@@ -303,10 +303,10 @@ async def _get_menu_summary(rid: str) -> str:
             cats.setdefault(i["categoria"], []).append(i)
     lines = []
     for cat, its in cats.items():
-        precos = [i["preco"] for i in its if i["preco"]]
-        faixa = f"R$ {min(precos):.0f}–{max(precos):.0f}" if precos else ""
-        lines.append(f"{cat}: {', '.join(i['nome'] for i in its[:4])}{'...' if len(its)>4 else ''} {faixa}")
-    return "\n".join(lines)
+        lines.append(f"{cat}: {', '.join(i['nome'] for i in its[:4])}{'...' if len(its)>4 else ''}")
+    return ("Índice de itens publicados, sem confirmação de estoque. "
+            "Consulte lookup_menu antes de informar preço, variante ou composição.\n"
+            + "\n".join(lines))
 
 async def create_menu_item(rid: str, data: dict) -> dict:
     async with pool().acquire() as c:

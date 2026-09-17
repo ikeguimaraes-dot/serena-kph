@@ -224,6 +224,8 @@ async def check_business_hours(restaurant_id: str, data: str) -> str:
     DIA_BR = ["segunda", "terça", "quarta", "quinta", "sexta", "sábado", "domingo"]
     dia_sem = DIA_BR[target.weekday()]
 
+    if info.get("aberto") is None:
+        return f"HORARIO_NAO_CONFIRMADO: {data_br} ({dia_sem}). Consulte a equipe; ausência de cadastro não significa casa fechada."
     if info.get("especial"):
         nome = info.get("nome") or "Data especial"
         if info.get("aberto"):
