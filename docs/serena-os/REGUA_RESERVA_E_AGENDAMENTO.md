@@ -59,7 +59,8 @@ Templates submetidos pelo responsável da execução, conforme prova separada
 - Confirmação: `HXc5378a3bd3fab82c4e1e7c289a054326`.
 - Lembrete: `HXf0e4708a7b1c5762397573fdcacecc85`.
 - Mapa declarado: 1 nome, 2 unidade, 3 data, 4 hora. Estado informado nesta etapa:
-  `received`, ainda sem aprovação final. São referências, não defaults ativos.
+  `received` na submissão; nova leitura em 17/09 às 11:06 UTC confirmou **approved**
+  nos dois. Seis regras foram salvas desativadas; não são disparos ativos.
 
 A mesma evidência explícita de consentimento `whatsapp_followup` e flag de contato
 das réguas existentes é exigida; uma reserva recebida não concede consentimento.

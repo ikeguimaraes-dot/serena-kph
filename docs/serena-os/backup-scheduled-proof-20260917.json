@@ -1,0 +1,11 @@
+{
+  "verified_at": "2026-09-17T06:17:50.579408+00:00",
+  "duration_seconds": 92.05,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 71,
+  "rows_verified": 1747,
+  "prompt_versions_verified": 10,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "archive_id": "20260917T061528.982079Z"
+}

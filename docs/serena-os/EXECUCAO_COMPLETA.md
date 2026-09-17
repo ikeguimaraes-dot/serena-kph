@@ -35,7 +35,8 @@ os resultados operacionais de 90 dias ainda dependem dos itens abaixo.
   vinculada ao aceite do provedor. Não há prova de recebimento humano nas quatro casas.
 - **Régua:** confirmação, lembrete, retorno, consentimento auditável e scheduler
   implementados. Seis regras de confirmação/lembrete configuradas **desativadas**.
-  Templates Meta em `pending`; envio/scheduler globais desligados; outbox com zero.
+  Templates Meta **approved**, conferidos novamente às 11:06 UTC; envio/scheduler
+  globais desligados; outbox com zero no corte de implantação.
 - **Portabilidade e comercial:** exportador privado de 11 tabelas por unidade,
   conciliação offline de recebimentos, pacote de onboarding, proposta e objeções.
   Nenhum dado real exportado ao repositório público.
@@ -61,13 +62,15 @@ os resultados operacionais de 90 dias ainda dependem dos itens abaixo.
 com conjunto de tabelas, contagens e hashes iguais ao snapshot. Arquivo privado
 `20260917T052650.483645Z`; rotina diária local às 03:15. Depende do Mac conectado;
 ainda não é cópia externa sempre disponível, nem inclui binários do Storage.
+A execução diária de 03:15 também concluiu: 71 tabelas, 1.747 linhas e 10 prompts
+restaurados, verificação às 06:17:50 UTC. A variação é do snapshot posterior da operação.
 
 ## O que ainda exige operação
 
 1. Conferência humana dos catálogos e confirmação de dados ausentes das casas.
 2. Turnos, capacidade e regras reais de Meet/Frêneze; aceite da agenda Madonna.
 3. Responsáveis/suplentes e recebimento comprovado de handoff, especialmente Madonna/Meet.
-4. Aprovação Meta dos templates, consentimentos com evidência e ativação coordenada da régua.
+4. Consentimentos com evidência e ativação operacional da régua; templates Meta já aprovados.
 5. Exportação autorizada do legado Tagme: API protegida retornou 401, respeitado.
 6. Inventário nominal de titularidade, recuperação por suplente e segundo destino de backup.
 7. Receita documentada de duas casas, período de custos representativo, preço aprovado

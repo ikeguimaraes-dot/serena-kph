@@ -9,9 +9,10 @@
       "3": "data",
       "4": "hora"
     },
-    "approval_status_observed": "pending",
+    "approval_status_observed": "approved",
     "category_observed": "UTILITY",
-    "messages_sent": 0
+    "messages_sent": 0,
+    "approval_checked_at": "2026-09-17T11:06:20Z"
   },
   {
     "name": "serena_reservation_reminder_pt_br_v1",
@@ -23,8 +24,9 @@
       "3": "data",
       "4": "hora"
     },
-    "approval_status_observed": "pending",
+    "approval_status_observed": "approved",
     "category_observed": "UTILITY",
-    "messages_sent": 0
+    "messages_sent": 0,
+    "approval_checked_at": "2026-09-17T11:06:20Z"
   }
 ]

@@ -26,7 +26,7 @@ Uma implantação não equivale a catálogo aprovado, mensagem recebida, venda o
 | S3.1 | Ficha por telefone/unidade | CRM, preferências e consentimento auditável publicados. | Higiene e desfechos reais; consentimento não é presumido. |
 | S3.2 | Consulta da ficha pelo agente | Contexto e testes de isolamento por unidade implementados. | Reconhecimento de última visita depende de registro real. |
 | S3.3 | Ficha para Vic | Menu/API liberados ao atendimento; CRM/consentimento 200, administração 403. | Aceite de uso interativo pela equipe. |
-| S3.4 | Régua por evento | Motor/scheduler completos; seis regras de reserva preparadas desativadas. | Templates Meta pending; evidência de consentimento e ativação operacional. |
+| S3.4 | Régua por evento | Motor/scheduler completos; seis regras de reserva preparadas desativadas. | Templates Meta aprovados; faltam evidência de consentimento e ativação operacional. |
 | S4.1 | Estágio/motivo de perda | Validação de motivo e histórico publicados; legado preservado. | Classificação real pela equipe, sem perda por inatividade automática. |
 | S4.2 | Funil | Conversas/intenção/proposta/reserva/desfecho no relatório determinístico publicado. | Revisão operacional dos denominadores e preenchimento de desfechos. |
 | S4.3 | Conversão/persona | Conversão por unidade e métricas por versão efetivamente registrada no WBR. | Série longitudinal; sem reserva atribuída à versão por inferência. |
@@ -43,7 +43,7 @@ Uma implantação não equivale a catálogo aprovado, mensagem recebida, venda o
 ## Dependências imediatas
 
 - **Ike/operação:** conferir catálogo, turnos/capacidades, titulares/suplentes e contatos.
-- **Meta/Twilio:** decisão dos templates e do nome/verificação empresarial no ticket existente.
+- **Meta/Twilio:** templates aprovados; o nome/verificação empresarial depende do ticket existente.
   A correção do backend não comprova conclusão desse processo externo.
 - **Operação/dados:** exportação autenticada Tagme, documentos de recebimentos e classificação real.
 - **Gestão:** titularidade/recuperação, segundo destino de backup, preços e cliente externo.
