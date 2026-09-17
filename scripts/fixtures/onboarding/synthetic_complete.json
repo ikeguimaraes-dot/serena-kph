@@ -1,0 +1,270 @@
+{
+  "schema_version": 1,
+  "synthetic": true,
+  "business": {
+    "tenant_id": "fixture_restaurant",
+    "legal_name": "EXEMPLO SINTÉTICO LTDA",
+    "display_name": "Restaurante Fictício",
+    "vertical": "gastronomy",
+    "address": "Endereço fictício offline",
+    "official_url": "https://example.invalid",
+    "data_source_ref": "fixture://briefing",
+    "timezone": "America/Sao_Paulo",
+    "clinical_risk": false
+  },
+  "owners": {
+    "business": "Operador sintético",
+    "operations": "Operador sintético",
+    "engineering": "Operador sintético",
+    "data_privacy": "Operador sintético",
+    "commercial": "Operador sintético"
+  },
+  "channels": {
+    "whatsapp_number": "+5500000000000",
+    "sender_ref": "fixture://sender",
+    "waba_ref": "fixture://waba",
+    "display_name_evidence_ref": "fixture://approval",
+    "display_name_approved": true
+  },
+  "catalog": {
+    "item_count": 2,
+    "source_ref": "fixture://catalog",
+    "manifest_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "reviewer": "Revisor sintético",
+    "review_evidence_ref": "fixture://review",
+    "operator_review_complete": true
+  },
+  "agenda": {
+    "mode": "own",
+    "source_ref": "fixture://agenda",
+    "turns_evidence_ref": "fixture://turns",
+    "capacity_evidence_ref": "fixture://capacity",
+    "blocks_evidence_ref": "fixture://blocks",
+    "concurrency_test_ref": "fixture://concurrency",
+    "operator_approved": true,
+    "official_booking_url": null,
+    "identity_evidence_ref": null,
+    "accepted_pilot_limitation": false
+  },
+  "handoff": {
+    "primary_owner": "Operador sintético",
+    "backup_owner": "Suplente sintético",
+    "boundary_ref": "fixture://boundary",
+    "destination_evidence_ref": "fixture://destination",
+    "receipt_evidence_ref": "fixture://receipt",
+    "received_by_human": true,
+    "clinical_owner": null,
+    "clinical_boundary_ref": null
+  },
+  "access_inventory": [
+    {
+      "resource": "backup",
+      "account_ref": "fixture://backup/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://backup/recovery_method",
+      "vault_ref": "fixture://backup/vault_ref",
+      "recovery_test_ref": "fixture://backup/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "database",
+      "account_ref": "fixture://database/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://database/recovery_method",
+      "vault_ref": "fixture://database/vault_ref",
+      "recovery_test_ref": "fixture://database/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "hosting_backend",
+      "account_ref": "fixture://hosting_backend/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://hosting_backend/recovery_method",
+      "vault_ref": "fixture://hosting_backend/vault_ref",
+      "recovery_test_ref": "fixture://hosting_backend/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "hosting_panel",
+      "account_ref": "fixture://hosting_panel/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://hosting_panel/recovery_method",
+      "vault_ref": "fixture://hosting_panel/vault_ref",
+      "recovery_test_ref": "fixture://hosting_panel/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "meta_portfolio",
+      "account_ref": "fixture://meta_portfolio/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://meta_portfolio/recovery_method",
+      "vault_ref": "fixture://meta_portfolio/vault_ref",
+      "recovery_test_ref": "fixture://meta_portfolio/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "model_provider",
+      "account_ref": "fixture://model_provider/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://model_provider/recovery_method",
+      "vault_ref": "fixture://model_provider/vault_ref",
+      "recovery_test_ref": "fixture://model_provider/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "source_control",
+      "account_ref": "fixture://source_control/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://source_control/recovery_method",
+      "vault_ref": "fixture://source_control/vault_ref",
+      "recovery_test_ref": "fixture://source_control/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    },
+    {
+      "resource": "whatsapp_provider",
+      "account_ref": "fixture://whatsapp_provider/account_ref",
+      "owner": "Titular sintético",
+      "backup_owner": "Suplente sintético",
+      "recovery_method": "fixture://whatsapp_provider/recovery_method",
+      "vault_ref": "fixture://whatsapp_provider/vault_ref",
+      "recovery_test_ref": "fixture://whatsapp_provider/recovery_test_ref",
+      "recovery_tested_at": "2026-09-17T00:00:00Z"
+    }
+  ],
+  "measurements": {
+    "status": "measured",
+    "start_date": "2026-08-01",
+    "end_date": "2026-08-30",
+    "conversations": 100,
+    "billable_messages": 1000,
+    "llm_cost_brl": 30,
+    "messaging_cost_brl": 20,
+    "infra_allocated_brl": 40,
+    "support_allocated_brl": 10,
+    "setup_hours": 2,
+    "loaded_hourly_brl": 25,
+    "setup_direct_brl": 10,
+    "evidence_refs": [
+      "fixture://synthetic-costs-not-a-quote"
+    ]
+  },
+  "commercial": {
+    "decision_status": "approved",
+    "decision_owner": "Comercial sintético",
+    "decision_ref": "fixture://decision",
+    "included_messages": 1000,
+    "billing_period_days": 30,
+    "target_margin": 0.4,
+    "effective_tax_rate": 0.1,
+    "subscription_price_brl": 200,
+    "overage_price_per_message_brl": 0.1,
+    "setup_price_brl": 120,
+    "below_floor_exception_ref": null,
+    "final_price_approval_ref": "fixture://price-approval"
+  },
+  "go_live": {
+    "checks": {
+      "auth_permissions": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "backup_restore": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "catalog_review": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "engineering_signoff": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "fallback": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "handoff_received": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "operator_signoff": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "privacy_review": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "tenant_isolation": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      },
+      "training": {
+        "status": "passed",
+        "owner": "Operador sintético",
+        "evidence_ref": "fixture://check",
+        "verified_at": "2026-09-17T00:00:00Z"
+      }
+    },
+    "assisted_operation_owner": "Operador sintético",
+    "rollback_ref": "fixture://rollback"
+  },
+  "milestones": {
+    "briefing_complete_at": "2026-09-14T09:00:00-03:00",
+    "engineering_started_at": "2026-09-15T09:00:00-03:00",
+    "engineering_completed_at": "2026-09-15T11:00:00-03:00",
+    "pilot_live_at": "2026-09-16T09:00:00-03:00"
+  },
+  "persona": {
+    "agent_name": "fixture://agent_name",
+    "tone": "fixture://tone",
+    "language": "fixture://language",
+    "limits_ref": "fixture://limits_ref",
+    "prompt_version_ref": "fixture://prompt_version_ref",
+    "vision_rules_ref": "fixture://vision_rules_ref",
+    "source_of_truth_ref": "fixture://source_of_truth_ref"
+  },
+  "scope": {
+    "included_modules": [
+      "concierge",
+      "catalog"
+    ],
+    "excluded_modules": [
+      "payments",
+      "waitlist"
+    ],
+    "signed_scope_ref": "fixture://scope"
+  },
+  "data_policy": {
+    "consent_policy_ref": "fixture://consent_policy_ref",
+    "privacy_notice_ref": "fixture://privacy_notice_ref",
+    "retention_policy_ref": "fixture://retention_policy_ref",
+    "data_export_procedure_ref": "fixture://data_export_procedure_ref"
+  }
+}
