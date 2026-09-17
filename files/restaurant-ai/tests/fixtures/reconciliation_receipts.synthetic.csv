@@ -1,0 +1,5 @@
+transaction_id,restaurant_id,reservation_id,order_id,amount_brl,occurred_at,evidence_ref
+synthetic-tx-a,synthetic_unit_a,synthetic-reservation-a,,100.10,2026-09-04T12:00:00-03:00,synthetic://receipt/a
+synthetic-tx-b,synthetic_unit_a,,synthetic-order-b,200.20,2026-09-04T13:00:00-03:00,synthetic://receipt/b
+synthetic-refund-a,synthetic_unit_a,synthetic-reservation-a,,-10.05,2026-09-06T12:00:00-03:00,synthetic://refund/a
+synthetic-unlinked,synthetic_unit_a,,,50.00,2026-09-06T13:00:00-03:00,synthetic://receipt/unlinked
