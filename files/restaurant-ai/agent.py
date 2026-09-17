@@ -321,6 +321,7 @@ class RestaurantAgent:
         tools_called: list[str] = []
         usage_calls = []
         price_evidence = []
+        unknown_availability = None
 
         for _ in range(MAX_ITERATIONS):
             response = await asyncio.to_thread(
@@ -366,6 +367,8 @@ class RestaurantAgent:
                             res = await execute_tool(b.name, b.input, user_phone, rid)
                         if b.name in {'lookup_menu', 'calcular_proposta', 'gerar_proposta'}:
                             price_evidence.append(str(res))
+                        if b.name == 'verificar_disponibilidade' and str(res).startswith('AGENDA_UNCONFIGURED:'):
+                            unknown_availability = b.input
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})
                 continue
@@ -379,6 +382,10 @@ class RestaurantAgent:
                 if rid in {'meet_and_eat', 'madonna_cucina', 'freneze'}:
                     from response_evidence import check_prices
                     text = check_prices(text, price_evidence)
+                if unknown_availability is not None:
+                    from tools import get_reservation_link
+                    link = get_reservation_link(rid, pessoas=unknown_availability.get('pessoas'), data=unknown_availability.get('data'))
+                    text = f'A disponibilidade para essa data precisa ser confirmada. Consulte a página de reservas: {link}\nSe preferir, posso chamar a equipe.'
                 return {
                     "text": text or "Desculpe, tente novamente.",
                     "tokens_input": tokens_input,

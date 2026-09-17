@@ -35,5 +35,15 @@ class ReadonlyTests(unittest.IsolatedAsyncioTestCase):
             await agent.RestaurantAgent().test_turn('menu',{'id':'fixture'})
             self.assertTrue(run.call_args.kwargs['read_only'])
 
+    async def test_unconfigured_agenda_never_becomes_promised_space(self):
+        tool=NS(type='tool_use',name='verificar_disponibilidade',id='fixture',input={'data':'2026-09-18','pessoas':4})
+        lookup=NS(stop_reason='tool_use',content=[tool],usage=None)
+        done=NS(stop_reason='end_turn',content=[NS(type='text',text='Temos espaço para 4 pessoas sem problema.')],usage=None)
+        with patch.object(agent.client.messages,'create',side_effect=[lookup,done]), patch.object(agent,'execute_tool',new_callable=AsyncMock,return_value='AGENDA_UNCONFIGURED: disponibilidade desconhecida'):
+            result=await agent.RestaurantAgent()._run('system',[], '+test','meet_and_eat',read_only=True)
+        self.assertNotIn('Temos espaço',result['text'])
+        self.assertIn('/reservar/meet_and_eat',result['text'])
+        self.assertIn('precisa ser confirmada',result['text'])
+
 
 if __name__=='__main__': unittest.main()
