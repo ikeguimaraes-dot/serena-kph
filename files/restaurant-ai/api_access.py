@@ -30,6 +30,8 @@ def staff_route_allowed(method: str, path: str) -> bool:
         return method == "GET"
     if path.startswith("/api/contacts"):
         return path != "/api/contacts/mark-inactive"
+    if re.fullmatch(r"/api/restaurants/[^/]+/contacts/[^/]+/outreach-consent", path):
+        return method in {"GET", "PUT"}
     return any(path.startswith(prefix) for prefix in
                ("/api/agenda/", "/api/handoff/", "/api/conversations/", "/api/os/", "/api/reservations/"))
 

@@ -371,7 +371,7 @@ class RestaurantAgent:
                             res = await execute_tool(b.name, b.input, user_phone, rid)
                         if b.name in {'lookup_menu', 'calcular_proposta', 'gerar_proposta'}:
                             price_evidence.append(str(res))
-                        if b.name == 'verificar_disponibilidade' and str(res).startswith('AGENDA_UNCONFIGURED:'):
+                        if b.name == 'verificar_disponibilidade' and str(res).startswith('AGENDA_UNCONFIGURED'):
                             unknown_availability = b.input
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})

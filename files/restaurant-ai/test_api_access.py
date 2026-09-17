@@ -91,6 +91,24 @@ class AccessTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(r.status_code, 403)
         update.assert_not_awaited()
 
+    async def test_staff_can_record_contact_consent_without_campaign_admin_access(self):
+        self.mock("outreach.consent_history", new_callable=AsyncMock, return_value={"eligible": False})
+        record = self.mock("outreach.record_consent", new_callable=AsyncMock, return_value={"id": 1})
+        payload = {"granted": False, "source": "revocation", "occurred_at": "2026-01-01T12:00:00Z", "evidence": "Pedido explícito do cliente"}
+        for method in ("GET", "PUT"):
+            r = await self.client.request(method, "/api/restaurants/first/contacts/test/outreach-consent", headers=HEADERS,
+                                          json=payload if method == "PUT" else None)
+            self.assertEqual(r.status_code, 200, r.text)
+            r = await self.client.request(method, "/api/restaurants/second/contacts/test/outreach-consent", headers=HEADERS,
+                                          json=payload if method == "PUT" else None)
+            self.assertEqual(r.status_code, 403, r.text)
+        record.assert_awaited_once()
+        for method, path in (("GET", "/api/restaurants/first/outreach/config"),
+                             ("POST", "/api/restaurants/first/outreach/reservation/run"),
+                             ("GET", "/api/restaurants/first/reports/commercial?inicio=2026-01-01&fim=2026-01-02")):
+            r = await self.client.request(method, path, headers=HEADERS)
+            self.assertEqual(r.status_code, 403, r.text)
+
     async def test_unknown_operator_denied_and_legacy_group_scope_preserved(self):
         self.profile.return_value = None
         r = await self.client.get("/api/restaurants", headers=HEADERS)
