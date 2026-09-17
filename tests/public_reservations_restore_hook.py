@@ -12,7 +12,7 @@ from uuid import uuid4
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / 'files' / 'restaurant-ai'))
 import asyncpg
-from reservation_service import BookingError, create_booking, availability, TZ, normalize_phone, update_booking_status
+from reservation_service import BookingError, create_booking, availability, TZ, normalize_phone, update_booking_status, create_manual_booking
 
 
 async def main():
@@ -128,7 +128,35 @@ async def main():
             for table in ('public_reservation_requests','public_reservation_rate_limits'):
                 assert not await c.fetchval("SELECT has_table_privilege($1,$2,'SELECT')",role,'public.'+table)
                 assert await c.fetchval('SELECT relrowsecurity FROM pg_class WHERE oid=$1::regclass','public.'+table)
-    print('PASS: local restored-schema booking, invalid-input/config/event contracts, last-place race, concurrent dedup, cross-tenant keys, reactivation capacity, closure/payment/event rules, shared write limiter and client-role ACL/RLS.')
+    # Authenticated legacy operations remain available without inventing slots
+    # or charging anything. They still validate tenant ownership and capacity.
+    manual = await create_manual_booking(pool, payload(restaurant_id=unknown, turno_id=None,
+        hora_inicio='19:30', canal='painel', pagamento_status='pendente', pagamento_valor='125.50'))
+    assert manual['turno_id'] is None and str(manual['hora_inicio']) == '19:30:00'
+    assert str(manual['pagamento_valor']) == '125.50' and manual['pagamento_status'] == 'pendente'
+    assert manual['status'] == 'pendente'
+    async with pool.acquire() as c:
+        manual_event = await c.fetchval("INSERT INTO agenda_eventos(restaurant_id,nome,data,capacidade_total,ativo) VALUES($1,'Legacy synthetic event',$2,1,true) RETURNING id",unknown,day)
+    event_payload = payload(restaurant_id=unknown,turno_id=None,evento_id=manual_event,hora_inicio='20:00',canal='painel')
+    event_booking = await create_manual_booking(pool,event_payload)
+    assert event_booking['evento_id'] == manual_event
+    try:
+        await create_manual_booking(pool,event_payload)
+    except BookingError as exc:
+        assert exc.code == 'capacity'
+    else:
+        raise AssertionError('Manual event capacity was bypassed')
+    try:
+        await create_manual_booking(pool,{**event_payload,'restaurant_id':other})
+    except BookingError as exc:
+        assert exc.code == 'invalid_event'
+    else:
+        raise AssertionError('Cross-tenant event accepted')
+    async with pool.acquire() as c:
+        await c.execute("UPDATE reservas SET status='cancelada' WHERE id=$1",manual['id'])
+    reopened = await update_booking_status(pool,manual['id'],unknown,'confirmada')
+    assert reopened['status'] == 'confirmada'
+    print('PASS: local restored-schema booking, invalid-input/config/event contracts, last-place race, concurrent dedup, cross-tenant keys, reactivation capacity, closure/payment/event rules, shared write limiter, client-role ACL/RLS and private manual/payment/event compatibility.')
     await pool.close()
 
 

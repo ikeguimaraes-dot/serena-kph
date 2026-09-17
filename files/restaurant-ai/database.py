@@ -1977,8 +1977,10 @@ async def check_disponibilidade(restaurant_id: str, data: str, turno_id: str, po
             return {"disponivel": False, "motivo": exc.message, "code": exc.code, "http_status": exc.status}
 
 
-async def criar_reserva(data: dict) -> dict:
-    from reservation_service import create_booking
+async def criar_reserva(data: dict, *, allow_legacy: bool = False) -> dict:
+    from reservation_service import create_booking, create_manual_booking, is_legacy_booking
+    if allow_legacy and is_legacy_booking(data):
+        return await create_manual_booking(pool(), data)
     return await create_booking(pool(), data)
 
 

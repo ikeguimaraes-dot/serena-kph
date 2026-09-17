@@ -71,7 +71,7 @@ TOOLS = [
      "input_schema":{"type":"object","properties":{},"required":[]}},
     {"name":"verificar_disponibilidade","description":(
         "Verifica horários disponíveis na agenda do restaurante para uma data e número de pessoas. "
-        "Use SEMPRE antes de fazer_reserva. Retorna os turnos com vagas e seus IDs."
+        "Use SEMPRE antes de fazer_reserva. Retorna os turnos com vagas e seus IDs. Se retornar AGENDA_UNCONFIGURED, a disponibilidade é DESCONHECIDA: não prometa espaço/vagas, não diga lotado/fechado e não confirme reserva. Ofereça o canal oficial ou a equipe."
      ),
      "input_schema":{"type":"object","properties":{
         "data":{"type":"string","description":"Data desejada (YYYY-MM-DD, 'amanhã', 'sexta', etc.)"},

@@ -314,15 +314,29 @@ async def verificar_disponibilidade(restaurant_id: str, data: str, pessoas: int)
         return f"Não entendi a data '{data}'. Use YYYY-MM-DD ou 'amanhã', 'sexta'."
 
     from reservation_service import availability, BookingError
+    from reservation_links import OFFICIAL_RESERVATION_URLS
+
+    def unknown(reason):
+        link = OFFICIAL_RESERVATION_URLS.get(restaurant_id) or get_reservation_link(restaurant_id)
+        return (
+            "AGENDA_UNCONFIGURED — DISPONIBILIDADE DESCONHECIDA. "
+            f"{reason} "
+            "INSTRUÇÃO: não prometa espaço, vagas, mesa ou reserva; não diga que está lotado, "
+            "fechado ou que o horário não existe. Diga que precisa confirmar com a equipe e "
+            f"ofereça atendimento humano ou este canal da própria unidade: {link}"
+        )
+
     try:
         async with db.pool().acquire() as c:
             result = await availability(c, restaurant_id, target, pessoas)
     except BookingError as exc:
-        return exc.message
+        return unknown(exc.message) if exc.status == 503 else exc.message
     except Exception:
-        return "Não consegui consultar a agenda agora. Confirme com a equipe; não conclua que está lotado."
+        return unknown("Não foi possível consultar a agenda agora.")
+    if result["state"] == "unconfigured":
+        return unknown(result.get("message", "A agenda ainda não está configurada."))
     if result["state"] != "available":
-        return result.get("message", "Confirme a disponibilidade com a equipe.")
+        return "AGENDA_UNAVAILABLE: " + result.get("message", "Confirme a disponibilidade com a equipe.")
     lines = [f"Horários disponíveis para {pessoas} pessoa(s) em {target.strftime('%d/%m/%Y')}:"]
     for slot in result["slots"]:
         if slot["available"]:

@@ -662,7 +662,7 @@ async def nova_reserva(restaurant_id: str, body: dict = Body(...)):
 
     # The shared creation path repeats checks under a transaction lock.
     try:
-        return await db.criar_reserva(body)
+        return await db.criar_reserva(body, allow_legacy=True)
     except BookingError as exc:
         raise HTTPException(exc.status, detail=exc.message)
 
