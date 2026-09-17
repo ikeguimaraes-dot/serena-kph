@@ -34,12 +34,13 @@ async def run():
         migration = (HERE / "migrations/20260917043459_ctwa_cache_commercial_reporting.sql").read_text()
         await c.execute(migration)
         await c.execute(migration)  # additive/idempotent replay
+        await c.execute((HERE / "migrations/20260917045116_crm_loss_reason_history.sql").read_text())
         assert dict(legacy_before) == dict(await c.fetchrow("SELECT count(*) AS n,sum(custo_usd) AS legacy FROM serena_metrics"))
         nonce = uuid.uuid4().hex
         a, b = "instrument-a-" + nonce, "instrument-b-" + nonce
-        phone = "+instrument-" + nonce
-        for rid in (a, b):
-            await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,false)",rid,phone+rid)
+        phone = "+12025550110"
+        for index, rid in enumerate((a, b)):
+            await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,true)",rid,f"+1202555019{index}")
             await db.ensure_contact(phone,rid,rid)
         base = datetime.now(timezone.utc) - timedelta(days=1)
         sid = "SM" + nonce
@@ -68,7 +69,7 @@ async def run():
 
         async def reserve(rid, customer=phone):
             return await db.criar_reserva({"restaurant_id":rid,"cliente_phone":customer,"cliente_nome":"Synthetic",
-                "data":datetime.now(TIMEZONE).date()+timedelta(days=3),"hora_inicio":"19:00","posicoes":1})
+                "data":datetime.now(TIMEZONE).date()+timedelta(days=3),"hora_inicio":"19:00","posicoes":1}, allow_legacy=True)
         reserved = await reserve(a)
         assert reserved["ctwa_clid"] == "click-a" and reserved["ctwa_source_message_sid"] == sid
         assert (await reserve(b))["ctwa_clid"] == "click-b"
@@ -79,23 +80,30 @@ async def run():
         newer = await db.save_message(phone,a,"user","later",source_message_sid="SMnew"+nonce,ctwa_clid="click-new")
         assert (await db.get_reserva(str(reserved["id"])))["ctwa_clid"] == "click-a"
         assert (await reserve(a))["ctwa_clid"] == "click-new"
-        for suffix,offset in (("old",-8),("future",1)):
-            customer=phone+suffix
+        for suffix,offset,customer in (("old",-8,"+12025550111"),("future",1,"+12025550112")):
             row_id=await db.save_message(customer,a,"user","source",source_message_sid="SM"+suffix+nonce,ctwa_clid="click-"+suffix)
             await c.execute("UPDATE conversations SET created_at=$2 WHERE id=$1",row_id,datetime.now(timezone.utc)+timedelta(days=offset))
             assert (await reserve(a,customer))["ctwa_clid"] is None
-        no_prior=await reserve(a,phone+"no-source")
-        await db.save_message(phone+"no-source",a,"user","late",ctwa_clid="late-click")
+        no_prior=await reserve(a,"+12025550113")
+        await db.save_message("+12025550113",a,"user","late",ctwa_clid="late-click")
         assert (await db.get_reserva(str(no_prior["id"])))["ctwa_clid"] is None
 
         # In the real agent the metric is recorded AFTER reservation tools. The
         # funnel must link to the inbound timestamp by SID, not lose this booking.
         await c.execute("UPDATE serena_metrics SET horario_conversa=NOW() WHERE id::text=$1",metric_id)
+        await c.execute("""INSERT INTO ordens_servico
+            (restaurant_id,cliente_phone,cliente_nome,tipo_evento,data,hora_inicio,pessoas,
+             status,plano,proposta_validade,criado_em)
+            VALUES($1,$2,'Synthetic proposal','Synthetic',CURRENT_DATE+3,'19:00',2,
+                   'proposta_enviada','Synthetic plan',$3,$4)""",
+            a, phone, base + timedelta(days=4), base + timedelta(minutes=3))
 
         today=datetime.now(TIMEZONE).date()
         report=await build_report(a,today-timedelta(days=7),today+timedelta(days=1))
         funnel=report["funil_por_contato"]
         assert funnel["contatos_com_intencao_reserva_ou_evento"] == 1
+        assert funnel["contatos_com_proposta_registrada"] == 1
+        assert funnel["contatos_com_reserva_registrada"] == 1
         assert funnel["contatos_com_confirmacao_ou_desfecho"] == 1
         assert funnel["contatos_com_reserva_realizada"] == 1 and funnel["contatos_com_no_show"] == 1
         assert report["custo_llm"]["total_observado_usd"] == 0.0129
@@ -103,6 +111,8 @@ async def run():
         assert report["receita_realizada_brl"] is None and report["custo_twilio_usd"] is None and report["roi"] is None
         other=await build_report(b,today-timedelta(days=7),today+timedelta(days=1))
         assert other["funil_por_contato"]["contatos_com_intencao_reserva_ou_evento"] == 0
+        assert other["funil_por_contato"]["contatos_com_proposta_registrada"] == 0
+        assert other["funil_por_contato"]["contatos_com_reserva_registrada"] == 0
         assert other["funil_por_contato"]["contatos_com_confirmacao_ou_desfecho"] == 0
         assert other["custo_llm"]["total_observado_usd"] is None
 
@@ -119,6 +129,7 @@ async def run():
             "ctwa_same_tenant_last_touch_7d":True,"future_expired_and_retroactive_attribution_rejected":True,
             "funnel_and_cost_tenant_isolation":True,"existing_outcome_statuses_work":True,
             "same_turn_reservation_before_metric_is_counted":True,
+            "proposal_funnel_uses_real_os_and_tenant_scope":True,
             "weekly_sql_and_ltv_tenant_scope":True,"external_messages_sent":0}))
     finally:
         db._pool=None

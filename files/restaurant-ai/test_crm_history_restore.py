@@ -6,6 +6,8 @@ from pathlib import Path
 import subprocess
 from urllib.parse import urlencode
 import uuid
+from datetime import datetime, timedelta
+from reservation_service import BookingError, TZ
 
 import asyncpg
 import database as db
@@ -27,8 +29,9 @@ async def run():
     try:
         original_contacts = await c.fetchval("SELECT count(*) FROM contacts")
         legacy_tenant = "legacy-loss-" + uuid.uuid4().hex
-        await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,false)", legacy_tenant, "+"+legacy_tenant)
+        await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,true)", legacy_tenant, "+12025550199")
         await c.execute("INSERT INTO contacts(celular,restaurant_id,estagio_kanban) VALUES('synthetic-legacy',$1,'perdido')", legacy_tenant)
+        await c.execute("INSERT INTO contacts(celular,restaurant_id,estagio_kanban) VALUES('+12025550198',$1,'Novo Lead')", legacy_tenant)
         previous = await c.fetch("SELECT id,to_jsonb(c)::text AS data FROM contacts c ORDER BY id")
         migration = HERE / "migrations/20260917045116_crm_loss_reason_history.sql"
         # CLI v2.101 incorrectly reparses Unix-socket URL paths as database names.
@@ -44,11 +47,16 @@ async def run():
         legacy = await db.update_contact("synthetic-legacy", {"nome": "Synthetic legacy updated"}, legacy_tenant)
         assert legacy["estagio_kanban"] == "perdido" and legacy["motivo_perda"] is None
         assert await db.get_contact_stage_history("synthetic-legacy", legacy_tenant) == []
+        await db.ensure_contact("+12025550197", "Synthetic canonical", legacy_tenant)
+        capture_contacts = await db.list_contacts(estagio="captacao", restaurant_id=legacy_tenant)
+        assert {row["celular"] for row in capture_contacts} == {"+12025550198", "+12025550197"}
+        assert {row["estagio_kanban"] for row in capture_contacts} == {"Novo Lead", "captacao"}
+        assert all(row["restaurant_id"] == legacy_tenant for row in capture_contacts)
 
         nonce = uuid.uuid4().hex
-        a, b, phone = "history-a-" + nonce, "history-b-" + nonce, "+history-" + nonce
-        for rid in (a, b):
-            await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,false)", rid, phone+rid)
+        a, b, phone = "history-a-" + nonce, "history-b-" + nonce, "+12025550110"
+        for index, rid in enumerate((a, b)):
+            await c.execute("INSERT INTO restaurants(id,nome,whatsapp_number,ativo) VALUES($1,$1,$2,true)", rid, f"+1202555019{index}")
             await db.ensure_contact(phone, "Synthetic", rid)
         first = await db.get_contact(phone, a)
         assert first["estagio_kanban"] == "captacao"
@@ -104,9 +112,10 @@ async def run():
         assert len(await db.get_contact_stage_history(phone, a)) == old_count
         assert (await db.get_contact(phone, a))["estagio_kanban"] == "fechado"
 
-        reservation_phone = phone + "-reservation"
+        reservation_phone = "+12025550111"
+        reservation_day = datetime.now(TZ).date() + timedelta(days=3)
         reservation = await db.criar_reserva({"restaurant_id": a, "cliente_phone": reservation_phone, "cliente_nome": "Synthetic",
-                                              "data": "2026-10-01", "hora_inicio": "19:00", "posicoes": 1})
+                                              "data": reservation_day, "hora_inicio": "19:00", "posicoes": 1}, allow_legacy=True)
         rid = str(reservation["id"])
         assert len(await db.get_reserva_status_history(rid, a)) == 1
         assert await db.get_reserva_status_history(rid, b) == []
@@ -121,6 +130,34 @@ async def run():
         assert (await db.get_reserva_status_history(rid, a))[0]["actor_operator_id"] is None
         synced = (await db.get_contact_stage_history(reservation_phone, a))[0]
         assert synced["source"] == "reservation_sync" and synced["new_stage"] == "fechado"
+
+        # The integrated status writer must preserve capacity checks AND actor
+        # context. A rejected reactivation leaves both status and audit untouched.
+        await c.execute("INSERT INTO agenda_config(restaurant_id,permite_same_day) VALUES($1,true)", a)
+        slot = await c.fetchval("""INSERT INTO agenda_turnos
+            (restaurant_id,dia_semana,nome,hora_inicio,hora_fim,capacidade_posicoes_max)
+            VALUES($1,$2,'Synthetic history slot','19:00','21:00',1) RETURNING id""", a, (reservation_day.weekday()+1)%7)
+        payload = {"restaurant_id": a, "cliente_phone": "+12025550112", "cliente_nome": "Synthetic capacity",
+                   "data": reservation_day, "hora_inicio": "19:00", "posicoes": 1, "turno_id": str(slot)}
+        original = await db.criar_reserva(payload)
+        await db.atualizar_status_reserva(str(original["id"]), a, "cancelada", operator_id=OPERATOR)
+        replacement = await db.criar_reserva({**payload, "cliente_phone": "+12025550113"})
+        events_before = len(await db.get_reserva_status_history(str(original["id"]), a))
+        try:
+            await db.atualizar_status_reserva(str(original["id"]), a, "confirmada", operator_id=OPERATOR)
+        except BookingError as exc:
+            assert exc.code == "capacity"
+        else:
+            raise AssertionError("Integrated status writer bypassed slot capacity")
+        assert (await db.get_reserva(str(original["id"])))["status"] == "cancelada"
+        assert len(await db.get_reserva_status_history(str(original["id"]), a)) == events_before
+        await db.atualizar_status_reserva(str(replacement["id"]), a, "cancelada", operator_id=OPERATOR)
+        await db.atualizar_status_reserva(str(original["id"]), a, "confirmada", operator_id=OPERATOR)
+        reactivated = (await db.get_reserva_status_history(str(original["id"]), a))[0]
+        assert reactivated["previous_status"] == "cancelada" and reactivated["new_status"] == "confirmada"
+        assert str(reactivated["actor_operator_id"]) == OPERATOR and reactivated["source"] == "reservation_api"
+        await c.execute("UPDATE reservas SET status='cancelada' WHERE id=$1", original["id"])
+        assert (await db.get_reserva_status_history(str(original["id"]), a))[0]["actor_operator_id"] is None
 
         # Queryable audit is private. Browser roles get neither table nor function access.
         security = await c.fetch("""SELECT relname,relrowsecurity,
@@ -139,10 +176,12 @@ async def run():
             Path(os.environ["PGHOST"]).joinpath("advisor-diagnostic.log").write_text(advisors.stderr + advisors.stdout)
         print(json.dumps({"success": True, "migration_replay": True,
             "existing_contacts_preserved": original_contacts, "legacy_loss_without_reason_remains_editable": True,
+            "capture_filter_includes_legacy_without_backfill": True,
             "no_historical_events_backfilled": True, "reservation_sync_source_verified": True,
             "same_phone_tenant_isolation": True, "lost_requires_explicit_reason": True,
             "reason_edit_and_reopen_history": True, "retry_no_duplicate_event": True,
             "actor_context_cleared_between_requests": True, "no_automatic_loss": True,
+            "reactivation_capacity_and_actor_context_integrated": True,
             "reservation_status_history": True, "private_history_rls_and_grants": True,
             "security_advisor": advisor_note, "production_writes": 0, "external_messages": 0}))
     finally:
