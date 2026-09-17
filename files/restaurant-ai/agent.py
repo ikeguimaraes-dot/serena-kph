@@ -143,7 +143,7 @@ class RestaurantAgent:
         """Roda 1 turno SEM persistir nada — para testes em /api/serena/test-message."""
         if prompt_body_override is not None:
             from agent_prompt import _dynamic_header
-            contact_block = await build_contact_context(user_phone)
+            contact_block = await build_contact_context(user_phone, restaurant["id"])
             system = _dynamic_header(restaurant, contact_block) + "\n" + prompt_body_override
             pid = "OVERRIDE"
         else:
@@ -151,7 +151,7 @@ class RestaurantAgent:
         messages = [{"role": "user", "content": message}]
         t0 = time.monotonic()
         result = await self._run(system=system, messages=messages,
-                                  user_phone=user_phone or "+test", rid=restaurant["id"])
+                                  user_phone=user_phone or "+test", rid=restaurant["id"], read_only=True)
         latencia_ms = int((time.monotonic() - t0) * 1000)
         text = result["text"]
         if text and text.startswith("__HANDOFF__:"):
@@ -305,7 +305,7 @@ class RestaurantAgent:
 
         return response_text
 
-    async def _run(self, system, messages, user_phone, rid) -> dict:
+    async def _run(self, system, messages, user_phone, rid, read_only=False) -> dict:
         msgs = list(messages)
         tokens_input = 0
         tokens_output = 0
@@ -344,7 +344,13 @@ class RestaurantAgent:
                 for b in response.content:
                     if b.type == "tool_use":
                         tools_called.append(b.name)
-                        res = await execute_tool(b.name, b.input, user_phone, rid)
+                        if read_only and b.name not in {
+                            "lookup_menu", "check_business_hours", "get_reservation_link",
+                            "lookup_contact_history", "verificar_disponibilidade", "consultar_reserva",
+                        }:
+                            res = "MODO_TESTE_SEM_ESCRITA: ação não executada. Não confirme reserva, alteração ou envio."
+                        else:
+                            res = await execute_tool(b.name, b.input, user_phone, rid)
                         results.append({"type":"tool_result","tool_use_id":b.id,"content":res})
                 msgs.append({"role":"user","content":results})
                 continue

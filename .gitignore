@@ -9,3 +9,4 @@ _Full/results/
 _Full/serena-test-system-v*/
 node_modules/
 .next/
+supabase/.temp/

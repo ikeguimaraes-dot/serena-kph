@@ -1,0 +1,14 @@
+{
+  "resultado": "PASS",
+  "raw_sha256": "e317c8d11fa560a597bc6fa4570ff6ed9c695233cb76b2739af3307bf78f7f23",
+  "itens_reconciliados_por_id_nome_descricao_preco_e_pointer": 253,
+  "opcoes_reconciliadas_por_id_preco_e_pointer": 223,
+  "hashes_conferidos": true,
+  "regeneracao_deterministica": true,
+  "sobrescrita_de_revisao_bloqueada": true,
+  "aprovacoes_humanas_fabricadas": 0,
+  "chaves_sensiveis_no_raw": [],
+  "conteudo_privado_email_e_tokens_nao_copiados": true,
+  "precos_zero_preservados_e_sinalizados": 1,
+  "precos_com_centavos_preservados": 1
+}

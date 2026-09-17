@@ -371,7 +371,7 @@ async def build_prompt(r: dict, user_phone: str | None = None) -> tuple[str, int
             body = load_dynamic_prompt_body(r)
             pid = None
 
-    contact_block = await build_contact_context(user_phone)
+    contact_block = await build_contact_context(user_phone, r["id"])
     eventos_block = await db._build_eventos_block(r["id"])
     return _dynamic_header(r, contact_block) + "\n" + body + eventos_block, pid
 

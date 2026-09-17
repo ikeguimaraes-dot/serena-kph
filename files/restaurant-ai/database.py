@@ -210,7 +210,8 @@ async def search_menu_items(rid: str, termo: str, limit: int = 5) -> list[dict]:
     pat = f"%{(termo or '').strip()}%"
     async with pool().acquire() as c:
         rows = await c.fetch("""
-            SELECT nome, categoria, descricao, preco, disponivel
+            SELECT nome, categoria, descricao, preco, disponivel,
+                   to_jsonb(menu_items)->'catalog_metadata' AS catalog_metadata
             FROM menu_items
             WHERE restaurant_id=$1
               AND ($2 = '%%' OR nome ILIKE $2 OR categoria ILIKE $2 OR descricao ILIKE $2)
@@ -1154,27 +1155,21 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
             )
 
 
-async def upsert_contact(data: dict) -> dict:
-    """Cria ou atualiza contato pelo celular. Retorna dict com o contato."""
+async def upsert_contact(data: dict, restaurant_id: str | None = None) -> dict:
+    """Upsert scoped to one business, never all records of a shared phone."""
+    rid = restaurant_id or data.get("restaurant_id")
+    if not rid:
+        raise ValueError("restaurant_id obrigatório para o contato")
     celular = data["celular"]
     fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
-
+    cols = ["celular", "restaurant_id"] + list(fields)
+    values = [celular, rid] + list(fields.values())
+    placeholders = ",".join(f"${i+1}" for i in range(len(cols)))
+    update = ",".join(f"{k}=EXCLUDED.{k}" for k in fields) or "celular=EXCLUDED.celular"
     async with pool().acquire() as c:
-        existing = await c.fetchrow("SELECT id FROM contacts WHERE celular=$1", celular)
-        if existing:
-            if fields:
-                set_clause = ",".join(f"{k}=${i+2}" for i, k in enumerate(fields))
-                await c.execute(
-                    f"UPDATE contacts SET {set_clause} WHERE celular=$1",
-                    celular, *fields.values())
-            row = await c.fetchrow("SELECT * FROM contacts WHERE celular=$1", celular)
-        else:
-            cols = ["celular"] + list(fields.keys())
-            placeholders = [f"${i+1}" for i in range(len(cols))]
-            values = [celular] + list(fields.values())
-            row = await c.fetchrow(
-                f"INSERT INTO contacts ({','.join(cols)}) VALUES ({','.join(placeholders)}) RETURNING *",
-                *values)
+        row = await c.fetchrow(
+            f"INSERT INTO contacts ({','.join(cols)}) VALUES ({placeholders}) "
+            f"ON CONFLICT (celular, restaurant_id) DO UPDATE SET {update} RETURNING *", *values)
     return dict(row)
 
 
@@ -1185,9 +1180,12 @@ async def list_contacts(
     tag: Optional[str] = None,
     opt_in: Optional[bool] = None,
     limit: int = 500,
+    restaurant_id: str | None = None,
 ) -> list[dict]:
-    conditions: list[str] = []
-    params: list = []
+    if not restaurant_id:
+        raise ValueError("restaurant_id obrigatório para o contato")
+    conditions: list[str] = ["c.restaurant_id=$1"]
+    params: list = [restaurant_id]
     if tier:
         params.append(tier)
         conditions.append(f"tier=${len(params)}")
@@ -1207,7 +1205,7 @@ async def list_contacts(
     params.append(limit)
     _nps_sub = (
         "(SELECT nps_score FROM ordens_servico "
-        "WHERE cliente_phone = c.celular AND nps_score IS NOT NULL "
+        "WHERE cliente_phone = c.celular AND restaurant_id = c.restaurant_id AND nps_score IS NOT NULL "
         "ORDER BY nps_respondido_em DESC NULLS LAST LIMIT 1) AS nps_ultimo"
     )
     async with pool().acquire() as c:
@@ -1217,42 +1215,42 @@ async def list_contacts(
     return [dict(r) for r in rows]
 
 
-async def get_contact(celular: str) -> Optional[dict]:
+async def get_contact(celular: str, restaurant_id: str | None = None) -> Optional[dict]:
     _nps_sub = (
         "(SELECT nps_score FROM ordens_servico "
-        "WHERE cliente_phone = c.celular AND nps_score IS NOT NULL "
+        "WHERE cliente_phone = c.celular AND restaurant_id = c.restaurant_id AND nps_score IS NOT NULL "
         "ORDER BY nps_respondido_em DESC NULLS LAST LIMIT 1) AS nps_ultimo"
     )
     async with pool().acquire() as c:
         row = await c.fetchrow(
-            f"SELECT c.*, {_nps_sub} FROM contacts c WHERE c.celular=$1",
-            celular)
+            f"SELECT c.*, {_nps_sub} FROM contacts c WHERE c.celular=$1 AND c.restaurant_id=$2",
+            celular, restaurant_id)
     return dict(row) if row else None
 
 
-async def update_contact(celular: str, data: dict) -> Optional[dict]:
+async def update_contact(celular: str, data: dict, restaurant_id: str | None = None) -> Optional[dict]:
     fields = {k: v for k, v in data.items() if k in CONTACT_UPDATABLE and v is not None}
     if not fields:
-        return await get_contact(celular)
+        return await get_contact(celular, restaurant_id)
     set_clause = ",".join(f"{k}=${i+2}" for i, k in enumerate(fields))
     async with pool().acquire() as c:
         row = await c.fetchrow(
-            f"UPDATE contacts SET {set_clause} WHERE celular=$1 RETURNING *",
-            celular, *fields.values())
+            f"UPDATE contacts SET {set_clause} WHERE celular=$1 AND restaurant_id=${len(fields)+2} RETURNING *",
+            celular, *fields.values(), restaurant_id)
     return dict(row) if row else None
 
 
-async def move_contact_kanban(celular: str, estagio: str) -> Optional[dict]:
+async def move_contact_kanban(celular: str, estagio: str, restaurant_id: str | None = None) -> Optional[dict]:
     if estagio not in KANBAN_ESTAGIOS:
         raise ValueError(f"Estágio inválido: {estagio}")
     async with pool().acquire() as c:
         row = await c.fetchrow(
-            "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1 RETURNING *",
-            celular, estagio)
+            "UPDATE contacts SET estagio_kanban=$2 WHERE celular=$1 AND restaurant_id=$3 RETURNING *",
+            celular, estagio, restaurant_id)
     return dict(row) if row else None
 
 
-async def get_funil_stats() -> dict:
+async def get_funil_stats(restaurant_id: str | None = None) -> dict:
     """KPIs do funil: leads da semana, score breakdown."""
     async with pool().acquire() as c:
         row = await c.fetchrow("""
@@ -1261,8 +1259,8 @@ async def get_funil_stats() -> dict:
               COUNT(*) FILTER (WHERE lead_score = 'quente') AS quentes,
               COUNT(*) FILTER (WHERE lead_score = 'morno')  AS mornos,
               COUNT(*) FILTER (WHERE lead_score = 'frio')   AS frios
-            FROM contacts
-        """)
+            FROM contacts WHERE restaurant_id=$1
+        """, restaurant_id)
     quentes = row["quentes"] or 0
     mornos  = row["mornos"]  or 0
     frios   = row["frios"]   or 0
@@ -1287,7 +1285,7 @@ async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
                 SELECT DISTINCT user_phone, restaurant_id
                 FROM conversations
                 WHERE created_at >= NOW() - INTERVAL '90 days'
-            ) r ON r.user_phone = c.celular
+            ) r ON r.user_phone = c.celular AND r.restaurant_id = c.restaurant_id
             WHERE c.lead_score = 'morno'
               AND c.atualizado_em < NOW() - ($1 || ' days')::INTERVAL
               AND NOT EXISTS (
@@ -1301,39 +1299,39 @@ async def get_nurture_leads(days_inactive: int = 3) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def search_contacts(q: str, limit: int = 50) -> list[dict]:
+async def search_contacts(q: str, limit: int = 50, restaurant_id: str | None = None) -> list[dict]:
     like = f"%{q.lower()}%"
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT * FROM contacts
-            WHERE LOWER(celular) LIKE $1
+            WHERE restaurant_id=$3 AND (LOWER(celular) LIKE $1
                OR LOWER(COALESCE(nome,'')) LIKE $1
                OR LOWER(COALESCE(sobrenome,'')) LIKE $1
-               OR LOWER(COALESCE(email,'')) LIKE $1
+               OR LOWER(COALESCE(email,'')) LIKE $1)
             ORDER BY atualizado_em DESC
-            LIMIT $2""", like, limit)
+            LIMIT $2""", like, limit, restaurant_id)
     return [dict(r) for r in rows]
 
 
-async def get_contact_reservations(celular: str, limit: int = 20) -> list[dict]:
+async def get_contact_reservations(celular: str, limit: int = 20, restaurant_id: str | None = None) -> list[dict]:
     """Reservas históricas ligadas ao celular do contato."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT id, cliente_phone AS user_phone, restaurant_id, cliente_nome AS nome,
                    data, hora_inicio AS hora, posicoes AS pessoas, status, observacoes,
                    pagamento_status, pagamento_valor, criado_em AS created_at
-            FROM reservas WHERE cliente_phone=$1
-            ORDER BY criado_em DESC LIMIT $2""", celular, limit)
+            FROM reservas WHERE cliente_phone=$1 AND restaurant_id=$3
+            ORDER BY criado_em DESC LIMIT $2""", celular, limit, restaurant_id)
     return [dict(r) for r in rows]
 
 
-async def get_contact_conversations(celular: str, limit: int = 100) -> list[dict]:
-    """Últimas mensagens (qualquer restaurante) do contato."""
+async def get_contact_conversations(celular: str, limit: int = 100, restaurant_id: str | None = None) -> list[dict]:
+    """Últimas mensagens do contato nesta unidade."""
     async with pool().acquire() as c:
         rows = await c.fetch("""
             SELECT role, content, restaurant_id, created_at FROM conversations
-            WHERE user_phone=$1
-            ORDER BY created_at DESC, id DESC LIMIT $2""", celular, limit)
+            WHERE user_phone=$1 AND restaurant_id=$3
+            ORDER BY created_at DESC, id DESC LIMIT $2""", celular, limit, restaurant_id)
     return [dict(r) for r in reversed(rows)]
 
 
@@ -1438,14 +1436,14 @@ async def report_full(rid: str, days: int = 7) -> dict:
     }
 
 
-async def contact_stats() -> dict:
+async def contact_stats(restaurant_id: str | None = None) -> dict:
     """Contadores agregados para header do painel CRM."""
     async with pool().acquire() as c:
-        total = await c.fetchval("SELECT COUNT(*) FROM contacts")
+        total = await c.fetchval("SELECT COUNT(*) FROM contacts WHERE restaurant_id=$1", restaurant_id)
         por_tier = await c.fetch(
-            "SELECT tier, COUNT(*) AS n FROM contacts GROUP BY tier")
+            "SELECT tier, COUNT(*) AS n FROM contacts WHERE restaurant_id=$1 GROUP BY tier", restaurant_id)
         por_estagio = await c.fetch(
-            "SELECT estagio_kanban AS estagio, COUNT(*) AS n FROM contacts GROUP BY estagio_kanban")
+            "SELECT estagio_kanban AS estagio, COUNT(*) AS n FROM contacts WHERE restaurant_id=$1 GROUP BY estagio_kanban", restaurant_id)
     return {
         "total": total,
         "por_tier": {r["tier"]: r["n"] for r in por_tier},

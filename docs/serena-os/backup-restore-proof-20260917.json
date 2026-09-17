@@ -1,0 +1,57 @@
+{
+  "verified_at": "2026-09-17T04:33:15.102374+00:00",
+  "duration_seconds": 43.03,
+  "restore_target": "disposable local PostgreSQL, Unix socket only, deleted after test",
+  "tables_verified": 64,
+  "rows_verified": 988,
+  "prompt_versions_verified": 4,
+  "comparison": "Exact table set, row count and order-independent row hashes from one source snapshot",
+  "success": true,
+  "local_integration_hook": {
+    "file": "test_catalog_restore.py",
+    "sha256": "bb4e990ccd14adfd362ba8a6d86312a62f223bae6660eda8bfe8581299034ece",
+    "success": true
+  },
+  "snapshot_created_at": "2026-09-17T04:28:41.533891+00:00",
+  "project_ref": "czoakcsntfxmqfssubbe",
+  "source_postgresql": "17.6",
+  "dump_tool": "pg_dump (PostgreSQL) 17.11 (Homebrew)",
+  "artifacts": {
+    "database.dump": {
+      "sha256": "fb3da2e2ccd6ae55b7b971247863951867527048fc057f33a1929275cab4eec0",
+      "bytes": 351817
+    },
+    "schema.sql": {
+      "sha256": "82bb1071a25bdb7d8cc6aab858c4e534cefcc67fa5733e51dd03b3e4eae3c0da",
+      "bytes": 186011
+    }
+  },
+  "catalog_integration": [
+    {
+      "catalog_test": "PASS",
+      "tenant": "meet_and_eat",
+      "items": 276,
+      "idempotence": true,
+      "operator_edits_preserved": true,
+      "no_free_base_prices": true
+    },
+    {
+      "catalog_test": "PASS",
+      "tenant": "madonna_cucina",
+      "items": 253,
+      "idempotence": true,
+      "operator_edits_preserved": true,
+      "no_free_base_prices": true
+    },
+    {
+      "catalog_test": "PASS",
+      "tenant": "freneze",
+      "items": 210,
+      "idempotence": true,
+      "operator_edits_preserved": true,
+      "no_free_base_prices": true
+    }
+  ],
+  "scheduling": "Prepared daily launchd at 03:15; not activated by backup implementation task",
+  "private_archive_location": "~/.local/share/serena-backups/20260917T042832.111509Z"
+}

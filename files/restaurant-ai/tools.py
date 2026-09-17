@@ -100,6 +100,7 @@ async def transferir_para_humano(motivo: str) -> str:
 
 async def update_contact(
     user_phone: str,
+    restaurant_id: str,
     nome: str | None = None,
     sobrenome: str | None = None,
     email: str | None = None,
@@ -112,7 +113,7 @@ async def update_contact(
 ) -> str:
     """Enriquece o contato CRM com dados extraídos da conversa.
     Merge não-destrutivo: listas são unidas com as existentes, strings só sobrescrevem se vieram não-vazias."""
-    current = await db.get_contact(user_phone) or {}
+    current = await db.get_contact(user_phone, restaurant_id=restaurant_id) or {}
 
     def _merge_list(new, old):
         if not new:
@@ -146,7 +147,7 @@ async def update_contact(
     if len(payload) == 1:
         return "Nada para atualizar."
 
-    await db.upsert_contact(payload)
+    await db.upsert_contact(payload, restaurant_id=restaurant_id)
     return "Contato atualizado."
 
 
@@ -188,6 +189,11 @@ async def lookup_menu(restaurant_id: str, termo: str) -> str:
 
     linhas = []
     for it in items:
+        from catalog import imported_item_text
+        imported = imported_item_text(it)
+        if imported is not None:
+            linhas.append(imported)
+            continue
         preco = it.get("preco")
         if preco is not None:
             preco_txt = f"R$ {float(preco):.2f}".replace(".", ",")
@@ -256,7 +262,7 @@ def get_reservation_link(pessoas=None, data: str | None = None, horario: str | N
 async def lookup_contact_history(user_phone: str, restaurant_id: str) -> str:
     """Resumo do CRM + últimas 5 reservas (qualquer status)."""
     try:
-        contact = await db.get_contact(user_phone)
+        contact = await db.get_contact(user_phone, restaurant_id=restaurant_id)
         reservas = await db.get_recent_reservations(user_phone, restaurant_id, limit=5)
     except Exception as e:
         print(f"[TOOL lookup_contact_history] erro: {e!r}")
@@ -364,7 +370,7 @@ async def fazer_reserva(
     cliente_email = email
     if not cliente_email:
         try:
-            contact = await db.get_contact(user_phone)
+            contact = await db.get_contact(user_phone, restaurant_id=restaurant_id)
             if contact and contact.get("email"):
                 cliente_email = contact.get("email")
         except Exception as e:
@@ -529,6 +535,7 @@ async def gerar_proposta(
     # Salva no CRM
     try:
         await db.upsert_contact({
+            "restaurant_id": restaurant_id,
             "celular": user_phone,
             "notas": f"Proposta enviada: {tipo_evento}, {pessoas} pax, {data_br}, R${valor_total:.0f}",
             "estagio_kanban": "proposta",
@@ -656,6 +663,7 @@ async def calcular_proposta(
             "observacoes":    observacoes,
         })
         await db.upsert_contact({
+            "restaurant_id": restaurant_id,
             "celular":        user_phone,
             "estagio_kanban": "proposta",
             "notas": (

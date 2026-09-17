@@ -1,0 +1,43 @@
+{
+  "restaurant_id": "madonna_cucina",
+  "estado_fonte": "FONTE_VERIFICADA",
+  "status_revisao_humana": "PENDENTE",
+  "alterou_banco_ou_prompt": false,
+  "fonte": {
+    "arquivo": "raw_catalogo.json",
+    "sha256": "e317c8d11fa560a597bc6fa4570ff6ed9c695233cb76b2739af3307bf78f7f23",
+    "bytes": 718108,
+    "formato": "Tagme: JSON array; ponteiros iniciam em /0, /1, /2",
+    "unidade": "centavos de BRL, conversao exata /100"
+  },
+  "contagens": {
+    "itens": 253,
+    "ids_unicos": 253,
+    "categorias_com_itens": 35,
+    "raizes": 3,
+    "opcoes": 223,
+    "filhos_sons": 0,
+    "preco_direto": 88,
+    "preco_em_opcao_unica": 165
+  },
+  "sinalizacoes": {
+    "PRECO_COM_CENTAVOS_CONFIRMAR_SE_INTENCIONAL": 1,
+    "DESCRICAO_PT_AUSENTE": 169,
+    "PRECO_EM_OPCAO": 165,
+    "NOME_REPETIDO_PRESERVAR_CATEGORIA_E_VOLUME": 24,
+    "PRECO_ZERO_OU_NEGATIVO_BLOQUEAR_OFERTA": 1
+  },
+  "arquivos": [
+    {
+      "arquivo": "madonna_253_revisao.csv",
+      "sha256": "59ca377b72c824764fb4fc319c19f9319e952d9e19aa5e180c83ee32d0ea0ac8",
+      "bytes": 97847
+    },
+    {
+      "arquivo": "madonna_223_opcoes_revisao.csv",
+      "sha256": "ef054c027c1f50a9e5130e2b640b200d4deb7832698537813da0fdde59ee8909",
+      "bytes": 46126
+    }
+  ],
+  "regra": "FONTE_VERIFICADA significa origem e integridade auditadas, não aprovação humana. Não arredondar, inventar ou promover preço zero para oferta comercial."
+}

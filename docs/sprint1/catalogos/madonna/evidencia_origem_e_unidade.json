@@ -1,0 +1,44 @@
+{
+  "captured_at_utc": "2026-09-17T04:25:26.419814+00:00",
+  "entrypoint": "https://livemenu.app/menu/691377229337bdf1ad07625f",
+  "entrypoint_http_status": 200,
+  "entrypoint_sha256": "5657b395690a2022627fbb11f75cf221b61f8788474c4eff4bb20aa07dbf96ae",
+  "evidence": [
+    {
+      "title": "O proprio cliente publica o caminho de leitura",
+      "public_asset": "https://livemenu.app/main.fbaa28ac17e25adf.js",
+      "sha256": "df82e7c2e862ef7b24fe8e7fc2f9394b6fea4cf4df77650afbb12fd09745f8b9",
+      "excerpt": "getMenuFromVenue(G,de){return this.menu?(0,o.of)(this.menu):this.http.get(`${N.N.liveMenuApi.host}/menu/${G}/${de}?ignoreDisabled=1`,{headers:new W.WM({Accept:\"*/*\",\"Content-Type\":\"application/json\"})})}"
+    },
+    {
+      "title": "Base URL publica",
+      "public_asset": "https://livemenu.app/main.fbaa28ac17e25adf.js",
+      "sha256": "df82e7c2e862ef7b24fe8e7fc2f9394b6fea4cf4df77650afbb12fd09745f8b9",
+      "excerpt": "liveMenuApi:{host:\"https://customers.tagme.com.br/dine-in\"}"
+    },
+    {
+      "title": "Modo Dine-in",
+      "public_asset": "https://livemenu.app/main.fbaa28ac17e25adf.js",
+      "sha256": "df82e7c2e862ef7b24fe8e7fc2f9394b6fea4cf4df77650afbb12fd09745f8b9",
+      "excerpt": "this.menuService.getMenuFromVenue(Pe.id,\"Dine-in\")"
+    },
+    {
+      "title": "Conversao centavos exata do cliente",
+      "public_asset": "https://livemenu.app/204.e2bd138b61ad3f4d.js",
+      "sha256": "3aff71e2065775e31bf82bb94cd8391f314ca989e25f7696a06a0fb99097647b",
+      "excerpt": "class h{transform(d){return d/100}}return h.\\u0275fac=function(d){return new(d||h)},h.\\u0275pipe=g.Yjl({name:\"formatFromCents\",type:h,pure:!0}),h})()"
+    },
+    {
+      "title": "Preco da opcao usa formatFromCents",
+      "public_asset": "https://livemenu.app/292.bdc1d482421ff7e4.js",
+      "sha256": "c02c6a838c92ef45ead25d5b3aba1479976d302cd4928d62e8cadb90e31901a4",
+      "excerpt": "function y(u,O){if(1&u&&(e.TgZ(0,\"div\"),e._uU(1),e.ALo(2,\"currency\"),e.ALo(3,\"formatFromCents\"),e.qZA()),2&u){const i=e.oxw().$implicit,_=e.oxw(2);e.xp6(1),e.AsE(\" \",i.price?e.xi3(2,2,e.lcZ(3,5,i.price),_.getCurrency()):\"\",\" \",_.volumeLabel(i),\" \")}}"
+    },
+    {
+      "title": "Rotulo volume/vinho preservado",
+      "public_asset": "https://livemenu.app/292.bdc1d482421ff7e4.js",
+      "sha256": "c02c6a838c92ef45ead25d5b3aba1479976d302cd4928d62e8cadb90e31901a4",
+      "excerpt": "volumeLabel(i),\" \")}}function y(u,O){if(1&u&&(e.TgZ(0,\"div\"),e._uU(1),e.ALo(2,\"currency\"),e.ALo(3,\"formatFromCents\"),e.qZA()),2&u){const i=e.oxw().$implicit,_=e.oxw(2);e.xp6(1),e.AsE(\" \",i.price?e.xi3(2,2,e.lcZ(3,5,i.price),_."
+    }
+  ]
+}

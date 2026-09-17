@@ -81,13 +81,13 @@ def _format_contact_block(contact: dict | None, reservations: list) -> str:
     return "\n".join(lines)
 
 
-async def build_contact_context(user_phone: str | None) -> str:
+async def build_contact_context(user_phone: str | None, restaurant_id: str) -> str:
     """Busca contato + reservas e devolve bloco formatado. Best-effort — nunca quebra."""
     if not user_phone:
         return _format_contact_block(None, [])
     try:
-        contact = await db.get_contact(user_phone)
-        reservations = await db.get_contact_reservations(user_phone, limit=10) if contact else []
+        contact = await db.get_contact(user_phone, restaurant_id=restaurant_id)
+        reservations = await db.get_contact_reservations(user_phone, limit=10, restaurant_id=restaurant_id) if contact else []
         return _format_contact_block(contact, reservations)
     except Exception as e:
         print(f"[AGENT] build_contact_context falhou user={user_phone!r}: {e!r}")

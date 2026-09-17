@@ -1,0 +1,14 @@
+{
+  "source_url": "https://customers.tagme.com.br/dine-in/menu/691377229337bdf1ad07625f/Dine-in?ignoreDisabled=1",
+  "captured_at_utc": "2026-09-17T04:25:26.419814+00:00",
+  "http_status": 200,
+  "bytes": 718108,
+  "sha256": "e317c8d11fa560a597bc6fa4570ff6ed9c695233cb76b2739af3307bf78f7f23",
+  "request_authentication": "none",
+  "public_entrypoint": "https://livemenu.app/menu/691377229337bdf1ad07625f",
+  "discovered_from": {
+    "provider": "Tagme",
+    "source_type": "email transacional oficial da fila de espera Madonna Cucina",
+    "evidence": "Botao publico Confira nosso menu. Conteudo privado, identificadores de mensagem, links privados da fila e tracking nao foram preservados."
+  }
+}

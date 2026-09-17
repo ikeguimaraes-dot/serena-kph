@@ -1,0 +1,17 @@
+{
+  "source_url": "https://customers.tagme.com.br/dine-in/menu/62ffd74ddaf31500126b3e29/Dine-in?ignoreDisabled=1",
+  "captured_at_utc": "2026-09-17T04:24:05.376221+00:00",
+  "source_sha256": "1a8fa5cb1ea961c19a47a51cb1eaad390e1cb95549e51ec82dc2d6c6803c31a4",
+  "current_products": 276,
+  "previous_products": 277,
+  "removed_from_source": [
+    "67254f95eae94ac3624cf5c2"
+  ],
+  "unchanged_remaining_product_fields": [
+    "price",
+    "options",
+    "name",
+    "descript",
+    "disabled"
+  ]
+}

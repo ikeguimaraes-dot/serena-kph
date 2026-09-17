@@ -1,3 +1,4 @@
 # Review CSVs retain CRLF/BOM and source whitespace inside quoted descriptions.
 docs/sprint1/catalogos/*.csv whitespace=-blank-at-eol,cr-at-eol
 docs/sprint1/catalogos/freneze/*.csv whitespace=-blank-at-eol,cr-at-eol
+docs/sprint1/catalogos/madonna/*.csv whitespace=-blank-at-eol,cr-at-eol

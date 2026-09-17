@@ -153,6 +153,7 @@ async def execute_tool(name: str, inputs: dict, user_phone: str, rid: str) -> st
         if name == "update_contact":
             return await tool_fns.update_contact(
                 user_phone=user_phone,
+                restaurant_id=rid,
                 nome=inputs.get("nome"),
                 sobrenome=inputs.get("sobrenome"),
                 email=inputs.get("email"),

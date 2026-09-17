@@ -4,6 +4,12 @@ Início: 17/09/2026. Referência: [Book mestre v1.1](BOOK_MESTRE_v1.1_2026-09-17
 
 ## Escopo e decisões
 
+**Atualização de autorização em 17/09/2026:** Ike instruiu executar 100% do
+planejamento, preservando a operação existente. Isso autoriza avançar entre
+sprints e publicar correções verificadas. Os estados abaixo registram o primeiro
+release; o acompanhamento atual está em `EXECUCAO_COMPLETA.md`. Revisão humana
+de catálogo não será declarada concluída por uma verificação automatizada.
+
 Iniciada a onda de estabilização. Este arquivo registra evidência de execução;
 o book original está preservado integralmente como documento recebido.
 O Sprint 2 só começa após o encerramento e o OK explícito do Ike, conforme seção 3.3.
