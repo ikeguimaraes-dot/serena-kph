@@ -403,7 +403,9 @@ async def create_menu_item(rid: str, data: MenuItemCreate):
 
 @app.patch("/api/menu/{item_id}")
 async def update_menu_item(item_id: int, data: MenuItemUpdate):
-    payload = {k: v for k, v in data.model_dump().items() if v is not None}
+    # Explicit null clears a price to "sob consulta"; omitted fields stay intact.
+    payload = {k: v for k, v in data.model_dump(exclude_unset=True).items()
+               if v is not None or k == "preco"}
     if not await db.update_menu_item(item_id, payload):
         raise HTTPException(404)
     return {"ok": True}
