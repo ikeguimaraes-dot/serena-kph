@@ -7,6 +7,7 @@ Ambos best-effort: falha não quebra o handoff.
 
 import os
 import json
+import re
 import urllib.request
 
 _twilio_client = None
@@ -31,12 +32,12 @@ def notify_handoff_discord(
     customer_phone: str,
     motivo: str,
     resumo: str = "",
-) -> None:
-    """Envia alerta de handoff para o canal Discord. Nunca lança exceção."""
+) -> bool:
+    """Retorna se o Discord aceitou o alerta; não confirma leitura pela equipe."""
     discord_url = os.environ.get("DISCORD_HANDOFF_WEBHOOK_URL")
     if not discord_url:
         print(f"[HANDOFF] Discord não configurado — {restaurant_nome} | {customer_phone}")
-        return
+        return False
     try:
         partes = [
             "🚨 **Atendimento humano solicitado**",
@@ -54,10 +55,13 @@ def notify_handoff_discord(
             headers={"Content-Type": "application/json", "User-Agent": "Serena/1.0"},
             method="POST",
         )
-        urllib.request.urlopen(req, timeout=5)
-        print(f"[HANDOFF] Discord OK — {restaurant_nome} | {customer_phone}")
+        with urllib.request.urlopen(req, timeout=5):
+            pass
+        print(f"[HANDOFF] Discord aceitou alerta — {restaurant_nome} | {customer_phone}")
+        return True
     except Exception as e:
         print(f"[HANDOFF] Discord falhou (best-effort): {e!r}")
+        return False
 
 def notify_handoff(
     team_whatsapp: str,
@@ -91,6 +95,54 @@ def notify_handoff(
         )
     except Exception as e:
         print(f"[HANDOFF] Twilio falhou: {e!r}")
+
+
+def notify_escalacao_gerente(
+    from_number: str,
+    gerente_whatsapp: str,
+    customer_phone: str,
+    motivo: str,
+) -> bool:
+    """Rota clínica: solicita envio ao gerente da unidade, sem prometer entrega.
+
+    Texto livre exige janela de 24h aberta pelo gerente com o número da clínica.
+    Ainda falta um template Utility aprovado para alertar fora dessa janela.
+    True significa apenas aceitação pela API Twilio; entrega exige status posterior.
+    O handoff permanece no painel e o Discord é tentado independentemente.
+    """
+    client = _client()
+    if not client:
+        print("[ESCALACAO] Twilio não configurado; envio não solicitado")
+        return False
+
+    def whatsapp_address(number: str) -> str:
+        value = re.sub(r"[\s()\-]", "", (number or "").removeprefix("whatsapp:"))
+        if not re.fullmatch(r"\+?[1-9][0-9]{7,14}", value):
+            raise ValueError("Número WhatsApp ausente ou inválido")
+        return "whatsapp:+" + value.lstrip("+")
+
+    try:
+        sender = whatsapp_address(from_number)
+        recipient = whatsapp_address(gerente_whatsapp)
+        clean_motivo = motivo.replace("[LARA]:", "").replace("[LARA]", "").strip()
+        msg = client.messages.create(
+            from_=sender,
+            to=recipient,
+            body=(
+                "🔴 Atenção — ação necessária\n\n"
+                f"Paciente: {customer_phone}\n"
+                f"Motivo: {clean_motivo}"
+            ),
+        )
+        if msg.status in ("failed", "undelivered", "canceled"):
+            print(f"[ESCALACAO] Twilio rejeitou envio sid={msg.sid} status={msg.status}")
+            return False
+        print(f"[ESCALACAO] Twilio aceitou solicitação sid={msg.sid} status={msg.status}; entrega não confirmada")
+        return True
+    except Exception as e:
+        print(f"[ESCALACAO] Envio não solicitado ou rejeitado (best-effort): {e!r}")
+        return False
+
 
 def send_to_customer(
     restaurant_number: str,

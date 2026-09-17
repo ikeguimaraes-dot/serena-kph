@@ -10,7 +10,7 @@ import os, mimetypes
 import httpx
 from datetime import datetime
 
-SUPABASE_URL = "https://fgntcrxuhfwcauvahaiz.supabase.co"
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
 BUCKET_ENTRADA = "serena-midia-entrada"
 BUCKET_SAIDA  = "serena-midia-saida"
 
@@ -21,6 +21,8 @@ def get_public_url(storage_path: str) -> str:
 
 
 def _service_key() -> str:
+    if not SUPABASE_URL:
+        raise RuntimeError("SUPABASE_URL não configurada")
     k = os.environ.get("SUPABASE_SERVICE_KEY", "")
     if not k:
         raise RuntimeError("SUPABASE_SERVICE_KEY não configurada — adicionar no Railway")

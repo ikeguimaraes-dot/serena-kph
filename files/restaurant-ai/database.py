@@ -227,6 +227,13 @@ async def get_menu_categories(rid: str) -> list[str]:
     return [r["categoria"] for r in rows if r["categoria"]]
 
 
+async def has_menu_items(rid: str) -> bool:
+    """Indica se o tenant tem catálogo, inclusive itens sem categoria/indisponíveis."""
+    async with pool().acquire() as c:
+        return await c.fetchval(
+            "SELECT EXISTS (SELECT 1 FROM menu_items WHERE restaurant_id=$1)", rid)
+
+
 async def get_business_hours_for_date(rid: str, target_date) -> dict:
     """target_date: date Python. Retorna dict {especial, aberto, horario, observacao, dia, data_iso, nome?}.
 
@@ -873,18 +880,54 @@ async def get_booked_people_at_slot(rid,data,hora) -> int:
 # ── Handoff ───────────────────────────────────────────────────
 
 async def create_handoff(user_phone: str, rid: str, motivo: str) -> int:
+    # [LARA] é uma rota clínica da Levvai, nunca um atalho entre unidades.
+    escalacao_clinica = rid == "levvai" and "[LARA]" in (motivo or "")
+    rest = None
+    gerente = None
     async with pool().acquire() as c:
         row = await c.fetchrow("""
             INSERT INTO handoff_sessions (user_phone,restaurant_id,motivo)
             VALUES ($1,$2,$3) RETURNING id""", user_phone, rid, motivo)
         hid = row["id"]
-        rest = await c.fetchrow("SELECT nome FROM restaurants WHERE id=$1", rid)
-    restaurant_nome = rest["nome"] if rest else rid
+        # Falhas auxiliares não apagam nem invalidam o handoff já persistido.
+        try:
+            rest = await c.fetchrow(
+                "SELECT nome, whatsapp_number FROM restaurants WHERE id=$1", rid)
+            if escalacao_clinica:
+                gerente = await c.fetchrow(
+                    """SELECT whatsapp FROM team_members
+                       WHERE restaurant_id=$1 AND role='gerente' AND ativo=true
+                         AND NULLIF(TRIM(whatsapp), '') IS NOT NULL
+                       ORDER BY id LIMIT 1""", rid)
+        except Exception as e:
+            print(f"[HANDOFF] Dados de notificação indisponíveis hid={hid}: {e!r}")
+    restaurant_nome = (rest["nome"] if rest else rid) or rid
+    discord_aceitou = False
     try:
         import notifications as notif
-        notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
+        discord_aceitou = notif.notify_handoff_discord(restaurant_nome, user_phone, motivo)
     except Exception as e:
-        print(f"[HANDOFF] notify falhou (best-effort): {e!r}")
+        print(f"[HANDOFF] Discord falhou (best-effort) hid={hid}: {e!r}")
+
+    whatsapp_aceitou = False
+    if escalacao_clinica:
+        if gerente:
+            try:
+                import notifications as notif
+                whatsapp_aceitou = notif.notify_escalacao_gerente(
+                    from_number=(rest["whatsapp_number"] if rest else "") or "",
+                    gerente_whatsapp=gerente["whatsapp"],
+                    customer_phone=user_phone,
+                    motivo=motivo,
+                )
+            except Exception as e:
+                print(f"[HANDOFF] Escalação clínica falhou (best-effort) hid={hid}: {e!r}")
+        else:
+            print(f"[HANDOFF] Escalação clínica sem gerente ativo com WhatsApp hid={hid}")
+        if not whatsapp_aceitou:
+            print(f"[HANDOFF] Rota clínica pendente no painel hid={hid}; Discord aceitou={bool(discord_aceitou)}")
+    if not discord_aceitou and not whatsapp_aceitou:
+        print(f"[HANDOFF] ALERTA: nenhum canal aceitou notificação hid={hid}; atendimento aguardando no painel")
     return hid
 
 async def get_handoff_sessions(rid: str, status: Optional[str]=None) -> list[dict]:
@@ -1094,7 +1137,7 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
         if nome:
             await c.execute(
                 """INSERT INTO contacts (celular, nome, restaurant_id) VALUES ($1, $2, $3)
-                   ON CONFLICT (celular) DO UPDATE SET
+                   ON CONFLICT (celular, restaurant_id) DO UPDATE SET
                      nome = CASE WHEN contacts.nome IS NULL OR contacts.nome = ''
                                  THEN EXCLUDED.nome ELSE contacts.nome END,
                      restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
@@ -1103,7 +1146,7 @@ async def ensure_contact(celular: str, nome: Optional[str] = None, restaurant_id
         else:
             await c.execute(
                 """INSERT INTO contacts (celular, restaurant_id) VALUES ($1, $2)
-                   ON CONFLICT (celular) DO UPDATE SET
+                   ON CONFLICT (celular, restaurant_id) DO UPDATE SET
                      restaurant_id = COALESCE(contacts.restaurant_id, EXCLUDED.restaurant_id)""",
                 celular, restaurant_id,
             )
@@ -1534,7 +1577,7 @@ async def update_serena_metric_categoria(metric_id: str, categoria: str):
         return
     async with pool().acquire() as c:
         await c.execute(
-            "UPDATE serena_metrics SET handoff_categoria=$2 WHERE id=$1",
+            "UPDATE serena_metrics SET handoff_categoria=$2 WHERE id::text=$1",
             metric_id, categoria)
 
 
@@ -1722,6 +1765,7 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
     """Insights agregados — heurísticas server-side. Cache deve ser feito no caller."""
     p = pool()
     rid_filter = "AND restaurant_id=$1" if rid else ""
+    handoff_rid_filter = "AND h.restaurant_id=$1" if rid else ""
     args = [rid] if rid else []
 
     today_iso = datetime.now(_TZ_SP).strftime("%d/%m/%Y")
@@ -1731,8 +1775,9 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
           h.user_phone, c.nome, c.tier, h.motivo
         FROM handoff_sessions h
         LEFT JOIN contacts c ON c.celular = h.user_phone
+          AND c.restaurant_id = h.restaurant_id
         WHERE h.status IN ('aguardando','em_atendimento')
-          {rid_filter}
+          {handoff_rid_filter}
           AND c.tier = 'Ouro'
         ORDER BY h.user_phone, h.created_at DESC
         LIMIT 25""", *args)
@@ -1744,22 +1789,24 @@ async def insights_aggregate(rid: Optional[str] = None) -> dict:
         GROUP BY hora_inicio ORDER BY pessoas DESC LIMIT 1"""
     pico = await p.fetchrow(pico_query, *args)
 
-    inativos_60d = await p.fetchval("""
+    inativos_60d = await p.fetchval(f"""
         SELECT COUNT(*) FROM contacts
         WHERE tier IN ('Ouro','Prata')
           AND ultima_visita IS NOT NULL
           AND ultima_visita < NOW() - INTERVAL '60 days'
-          AND ultima_visita > NOW() - INTERVAL '180 days'""")
+          AND ultima_visita > NOW() - INTERVAL '180 days'
+          {rid_filter}""", *args)
 
-    handoffs_categorias = await p.fetch("""
+    handoffs_categorias = await p.fetch(f"""
         SELECT handoff_categoria, COUNT(*) AS n
         FROM serena_metrics
         WHERE handoff_acionado=TRUE
           AND horario_conversa >= NOW() - INTERVAL '14 days'
           AND handoff_categoria IS NOT NULL
+          {rid_filter}
         GROUP BY handoff_categoria
         HAVING COUNT(*) >= 3
-        ORDER BY n DESC LIMIT 5""")
+        ORDER BY n DESC LIMIT 5""", *args)
 
     custo_hoje = await p.fetchval(
         f"SELECT COALESCE(SUM(custo_usd),0) FROM serena_metrics"

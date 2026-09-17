@@ -187,8 +187,7 @@ async def _tentar_capturar_nps(telefone: str, texto: str) -> bool:
     # Busca OS com D+3 enviado, sem NPS ainda, desse telefone
     query = """
         SELECT os.id FROM ordens_servico os
-        JOIN contacts c ON c.id = os.contact_id
-        WHERE c.telefone = $1
+        WHERE os.cliente_phone = $1
           AND os.regua_d3_enviado_em IS NOT NULL
           AND os.nps_score IS NULL
         ORDER BY os.regua_d3_enviado_em DESC
@@ -1740,6 +1739,10 @@ async def widget_reserva(
 
 @app.api_route("/health", methods=["GET", "HEAD"])
 async def health():
+    try:
+        await asyncio.wait_for(db.pool().fetchval("SELECT 1"), timeout=3)
+    except Exception:
+        raise HTTPException(503, "Banco de dados indisponível")
     return {"status": "ok", "sprint": "12", "release": "orkestri-clusters"}
 
 def _twiml(text: str) -> PlainTextResponse:
